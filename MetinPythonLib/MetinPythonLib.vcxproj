@@ -195,7 +195,7 @@
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NDEBUG;_CRT_SECURE_NO_WARNINGS;_DEBUG_FILE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -243,16 +243,16 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\common\Patterns.cpp" />
+    <ClCompile Include="..\common\Patterns.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="..\common\utils.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="App.cpp" />
     <ClCompile Include="Assembler.cpp" />
     <ClCompile Include="Background.cpp" />
-    <ClCompile Include="CAddressLoader.cpp" />
-    <ClCompile Include="Communication.cpp" />
-    <ClCompile Include="InstanceManager.cpp" />
+    <ClCompile Include="CAddressLoader.cpp" />    <ClCompile Include="InstanceManager.cpp" />
     <ClCompile Include="MemoryPatch.cpp" />
     <ClCompile Include="NetworkStream.cpp" />
     <ClCompile Include="Player.cpp" />
@@ -268,9 +268,7 @@
     <ClCompile Include="SleepFunctionHook.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
-    </ClCompile>
-    <ClCompile Include="WebsocketHandler.cpp" />
-  </ItemGroup>
+    </ClCompile>  </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\common\Patterns.h" />
     <ClInclude Include="..\common\utils.h" />

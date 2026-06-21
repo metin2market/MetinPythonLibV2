@@ -90,6 +90,7 @@ bool __fastcall __CheckPacket(ClassPointer classPointer, DWORD EDX, BYTE * heade
 {
 	CNetworkStream& instance = CNetworkStream::Instance();
 	CMemory& mem = CMemory::Instance();
+	mem.setNetworkStream(classPointer); // walker build: use the real 'this' the game passed, not the resolved global
 	return instance.__CheckPacket(header);
 }
 
@@ -175,7 +176,7 @@ bool CMemory::setupPatterns(HMODULE hDll)
 	globalToLocalFunc = (tGlobalToLocalPosition)addrLoader.GetAddress(GLOBALTOLOCAL_FUNCTION);
 	peekFunc = (tPeek)addrLoader.GetAddress(PEEK_FUNCTION);
 
-	peekFunc = (tPeek)getRelativeCallAddress((void*)peekFunc);
+	//peekFunc = (tPeek)getRelativeCallAddress((void*)peekFunc); // walker build: PEEK_FUNCTION is now a direct function sig (offset 0), not a call site
 	globalToLocalFunc = (tGlobalToLocalPosition)getRelativeCallAddress((void*)globalToLocalFunc);
 	recvAddr = getRelativeCallAddress(recvAddr);
 
@@ -227,17 +228,24 @@ bool CMemory::setupHooks()
 	tracenFHook->HookFunction();
 #endif
 
-	getEtherPacketHook->HookFunction();
-	recvHook->HookFunction();
-	sendHook->HookFunction();
-	sendSequenceHook->HookFunction();
-	backgroundCheckAdvHook->HookFunction();
-	instanceBaseCheckAdvHook->HookFunction();
-	sendStateHook->HookFunction();
-	setMoveToDestPositionHook->HookFunction();
-	setMoveToDirectionHook->HookFunction();
-	checkPacketHook->HookFunction();
-	sendAttackPacketHook->HookFunction();
+	// ---- walker build: DO NOT install the game hooks ----
+	// The packet hooks (recv/checkPacket/send/...) crash on the current GF client's packet
+	// layer (CHECK_PACKET sig ambiguous, RECV/PEEK unreliable, packet structs stale) and are
+	// not needed for the walker: GetPixelPosition reads memory directly, MoveToDestPosition is
+	// invoked via the resolved address directly, FindPath is file-based. Leaving them
+	// uninstalled lets the game's own functions run untouched. Only processHook (installed in
+	// setupProcessHook) stays active as the init/script heartbeat.
+	//getEtherPacketHook->HookFunction();
+	//recvHook->HookFunction();
+	//sendHook->HookFunction();
+	//sendSequenceHook->HookFunction();
+	//backgroundCheckAdvHook->HookFunction();
+	//instanceBaseCheckAdvHook->HookFunction();
+	//sendStateHook->HookFunction();
+	//setMoveToDestPositionHook->HookFunction();
+	//setMoveToDirectionHook->HookFunction();
+	checkPacketHook->HookFunction(); // walker build PHASE 1: re-enabled to drive InstancesList (recv/send stay off)
+	//sendAttackPacketHook->HookFunction();
 	return true;
 }
 

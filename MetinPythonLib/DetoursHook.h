@@ -14,6 +14,8 @@ public:
 	bool HookFunction(){
 		if (isHooked)
 			return true;
+		if (!originalFunction) // walker build: skip hooks whose AOB sig didn't resolve (NULL) instead of DetourAttach(NULL) crash
+			return false;
 		DetourTransactionBegin();
 		DetourUpdateThread(GetCurrentThread());
 		DetourAttach(&(PVOID&)originalFunction, redirection);

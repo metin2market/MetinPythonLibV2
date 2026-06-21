@@ -55,6 +55,19 @@ void CBackground::freeCurrentMap()
 	currMap = 0;
 }
 
+// walker build: cheap "are we in the game world?" check used to trigger script.py and
+// force the game phase, since packet-based phase tracking is bypassed.
+bool CBackground::isInGame()
+{
+	if (!background_mod)
+		return false;
+	std::string map_name;
+	PyObject* poArgs = Py_BuildValue("()");
+	bool ok = PyCallClassMemberFunc(background_mod, "GetCurrentMapName", poArgs, map_name);
+	Py_XDECREF(poArgs);
+	return ok && !map_name.empty();
+}
+
 bool CBackground::isBlockedPosition(int x, int y)
 {
 	if (currMap) {

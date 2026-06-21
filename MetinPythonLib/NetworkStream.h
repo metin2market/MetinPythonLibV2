@@ -44,6 +44,7 @@ public:
 
 
 	int GetCurrentPhase();
+	void forceGamePhase(); //walker build: set phase=GAME + load collision map without packet parsing
 	DWORD GetMainCharacterVID();
 	bool GlobalToLocalPosition(long& lx, long& ly);
 	bool LocalToGlobalPosition(LONG& rLocalX, LONG& rLocalY);

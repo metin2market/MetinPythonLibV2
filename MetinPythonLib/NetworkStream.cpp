@@ -319,6 +319,13 @@ bool CNetworkStream::__CheckPacket(BYTE * header)
 	if (!val || header == 0)
 		return val;
 
+	// walker build hardening: serialize + sanitize every Python C-API call the packet
+	// handlers below make (InstancesList dict + shop/chat/dig callbacks). On a map warp
+	// the client floods us with clear + character add/del + phase packets; doing that
+	// work without holding the GIL, or leaving a stray Python error set, corrupts the
+	// interpreter and crashes inside python27.dll (0xc0000005) on world reload.
+	PyGILState_STATE __gil = PyGILState_Ensure();
+
 	DEBUG_INFO_LEVEL_5("Hook CheckPacket header=%d", *header);
 
 	switch (currentPhase) {
@@ -359,6 +366,11 @@ bool CNetworkStream::__CheckPacket(BYTE * header)
 		}
 	}
 
+	// Drop any exception a callback/dict op left pending so it can't propagate into the
+	// game's own Python on the next packet, then release the GIL we took above.
+	if (PyErr_Occurred())
+		PyErr_Clear();
+	PyGILState_Release(__gil);
 	return val;
 }
 
@@ -388,6 +400,19 @@ bool CNetworkStream::__SendSequencePacket()
 int CNetworkStream::GetCurrentPhase()
 {
     return currentPhase;
+}
+
+// walker build: phase packets aren't parsed (packet hooks off), so force the GAME phase
+// once we detect we're in-game; this also loads the collision map for pathfinding.
+void CNetworkStream::forceGamePhase()
+{
+	if (currentPhase == PHASE_GAME)
+		return;
+	currentPhase = PHASE_GAME;
+	lastPointIsStored = false;
+	DEBUG_INFO_LEVEL_1("Phase forced to GAME (walker build)");
+	CBackground& background = CBackground::Instance();
+	background.setCurrentCollisionMap();
 }
 
 DWORD CNetworkStream::GetMainCharacterVID()
@@ -512,7 +537,9 @@ void CNetworkStream::callNewInstanceShop(DWORD player)
 	if (shopRegisterCallback && PyCallable_Check(shopRegisterCallback)) {
 		DEBUG_INFO_LEVEL_3("Calling python RegisterShopCallback");
 		PyObject* val = Py_BuildValue("(i)", player);
-		PyObject_CallObject(shopRegisterCallback, val);
+		PyObject* res = PyObject_CallObject(shopRegisterCallback, val);
+		Py_XDECREF(res);
+		Py_XDECREF(val);
 	}
 }
 
@@ -537,7 +564,9 @@ void CNetworkStream::callRecvChatCallback(DWORD vid, const char* msg, BYTE type,
 	if (chatCallback && PyCallable_Check(chatCallback)) {
 		DEBUG_INFO_LEVEL_3("Calling python chatCallback message=%s,locale=%s",msg,locale);
 		PyObject* val = Py_BuildValue("iiiss", vid,type,empire,msg,locale);
-		PyObject_CallObject(chatCallback, val);
+		PyObject* res = PyObject_CallObject(chatCallback, val);
+		Py_XDECREF(res);
+		Py_XDECREF(val);
 	}
 }
 

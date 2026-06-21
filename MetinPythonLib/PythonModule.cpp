@@ -6,7 +6,7 @@
 #include "Background.h"
 #include "Player.h"
 #include "Communication.h"
-#include "VMProtectSDK.h"
+//#include "VMProtectSDK.h" // walker build: VMProtect unused (all calls commented) - drop to avoid VMProtectSDK32.lib dependency
 
 /* PyObject* playerModule;
 PyObject* getMainPlayerPosition;*/

@@ -22,8 +22,12 @@ bool CApp::__AppProcess(ClassPointer p) {
 	}
 
 	if (!mainScriptExec && passed) {
-		CNetworkStream& net = CNetworkStream::Instance();
-		if (net.GetCurrentPhase() >=PHASE_LOADING) {
+		// walker build: packet-based phase tracking is bypassed (packet hooks disabled),
+		// so detect the game world via the background map name and force the game phase.
+		CBackground& bck = CBackground::Instance();
+		if (bck.isInGame()) {
+			CNetworkStream& net = CNetworkStream::Instance();
+			net.forceGamePhase();
 			mainScriptExec = true;
 			executePythonFile("script.py");
 		}
@@ -82,6 +86,11 @@ void CApp::init() {
 void CApp::initMainThread() {
 	CMemory& memory = CMemory::Instance();
 	initModule();
+	// Ensure the Python GIL machinery exists before any hook that touches the Python
+	// C-API from the packet path. eXLib reenters Python from CheckPacket while uBot
+	// runs background Python threads; PyGILState_Ensure (used to guard those calls) is
+	// only safe once the GIL has been created. Idempotent / no-op if already inited.
+	PyEval_InitThreads();
 	initPythonModules();
 	memory.setupHooks();
 }

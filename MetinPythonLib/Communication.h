@@ -1,53 +1,27 @@
 #pragma once
+// ---------------------------------------------------------------------------
+// Walker+pathfinding build: server-comms STRIPPED.
+// Original Communication.h pulled in libcurl + jsoncpp + websocketpp + asio,
+// none of which are installed here and none of which uBot's walker/pathfinding
+// features use. This stub keeps the exact public surface referenced by
+// PythonModule.cpp / App.cpp / CAddressLoader.cpp so they compile unchanged,
+// but every method is an inert no-op. (USE_BUILTIN_PATTERNS path never calls
+// the server methods at runtime.)
+// ---------------------------------------------------------------------------
 #include "stdafx.h"
-#include <curl\curl.h>
-#include <curl\multi.h>
-#include <json/json.h>
 #include <string>
 #include <map>
 #include "Singleton.h"
 #include "PythonUtils.h"
 #include "../common/utils.h"
-#include "WebsocketHandler.h"
-
-#define CURL_STATICLIB
 
 typedef void(*tGetCallback)(int id, std::string* buffer);
 
 struct ComCallbackFunction {
-	ComCallbackFunction(PyObject* pyFunc) : pyFunction(pyFunc){
-		isCFunc = false;
-	}
-
-	ComCallbackFunction(tGetCallback cFunc) : cFunction(cFunc) {
-		isCFunc = true;
-	}
-
-	inline void ExecuteCallback(int id, std::string* buffer,bool decrefPy=true) {
-		if (isCFunc) {
-			cFunction(id, buffer);
-		}
-		else {
-			if (PyCallable_Check(pyFunction)) {
-				PyObject* val = Py_BuildValue("(is)", id,buffer->c_str());
-				PyObject_CallObject(pyFunction, val);
-				Py_XDECREF(val);
-				if (decrefPy) {
-					Py_XDECREF(pyFunction);
-				}
-			}
-			else {
-				DEBUG_INFO_LEVEL_2("Callback is not a python function");
-			}
-		}
-	}
-
-	void Cleanup() {
-		if (isCFunc) {
-			Py_XDECREF(pyFunction);
-		}
-	}
-
+	ComCallbackFunction(PyObject* pyFunc) : pyFunction(pyFunc) { isCFunc = false; }
+	ComCallbackFunction(tGetCallback cFunc) : cFunction(cFunc) { isCFunc = true; }
+	inline void ExecuteCallback(int id, std::string* buffer, bool decrefPy = true) {}
+	void Cleanup() {}
 	bool isCFunc;
 	union {
 		tGetCallback	cFunction;
@@ -57,76 +31,22 @@ struct ComCallbackFunction {
 
 class CCommunication : public CSingleton<CCommunication>
 {
-	struct GetInstance {
-		int id;
-		ComCallbackFunction function;
-		std::string msgBuffer;
-	};
-	struct WebSocketInfo {
-		WebSocketInfo(int id, ComCallbackFunction callback) :recvCallback(callback),id(id) { 
-
-		}
-		ComCallbackFunction recvCallback; //Called from main thread
-		int id;
-	};
-
 public:
+	CCommunication() {}
+	~CCommunication() {}
 
-	CCommunication();
-	~CCommunication();
+	void Process() {}
 
-	void Process();
+	int GetRequest(std::string& url, ComCallbackFunction callback, int id = 0) { return -1; }
+	int GetRequest(const char* url, ComCallbackFunction callback, int id = 0) { return -1; }
 
-	//Multi-threaded - communication with remote servers
-	int GetRequest(std::string& url, ComCallbackFunction callback,int id=0);
-	int GetRequest(const char* url, ComCallbackFunction callback, int id = 0);
+	int OpenWebsocket(const char* host, ComCallbackFunction callback) { return -1; }
+	bool WebsocketSend(int id, const char* message) { return false; }
+	bool CloseWebsocket(int id) { return false; }
 
-	//Websockets
-	int OpenWebsocket(const char* host, ComCallbackFunction callback);
-	bool WebsocketSend(int id,const char* message);
-	bool CloseWebsocket(int id);
+	int MainServerSetAuthKey() { return 1; }
+	int MainServerGetOffsets(std::map<int, DWORD>* bufferOffsets, const char* server = "GF") { return 0; }
+	bool IsPremiumUser() { return true; }
 
-
-
-	//Blocking requests - main server
-	int MainServerSetAuthKey(); //Handle request, and write key
-	int MainServerGetOffsets(std::map<int,DWORD>* bufferOffsets, const char* server = "GF");
-	bool IsPremiumUser();
-
-	//Once called the certificates cannot be setup again
-	void clearMemoryCertificates();
-
-private:
-
-	//Blocking requests
-	int MainServerRequestAuthKey(std::string* key); //Not used
-
-	int MainServerPreformRequest(std::string& url, Json::Value* response, Json::Value& post_fields, bool use_api_key=true, bool use_https=false);
-	int MainServerPreformGetRequest(std::string& url, Json::Value* response, bool use_api_key = true);
-
-private:
-
-	//Used by curl
-	static size_t WriteCallback(void* contents, size_t size, size_t nmemb, int id);
-	static size_t WriteSingleThreadback(void* contents, size_t size, size_t nmemb, void* userp);
-
-
-private:
-	CURLM* curlMulti;
-	curl_blob sslCert;
-	curl_blob sslKey;
-
-
-	//To handle non blocking get requests
-	int maxID;
-	static std::map<int, GetInstance> getRecvBuffer;
-
-	//Websockets
-	CWebSocketHandler websocketHandler;
-	std::map<int, WebSocketInfo> webSocketList;
-
-
-	//Exlib server authkey
-	std::string authKey;
+	void clearMemoryCertificates() {}
 };
-

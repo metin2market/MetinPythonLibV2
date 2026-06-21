@@ -72,6 +72,7 @@ std::string serializeTimePoint(const std::chrono::system_clock::time_point& time
 
 
 inline void* getRelativeCallAddress(void* startCallAddr) {
+	if (!startCallAddr) return 0; // walker build: dead/missing sigs resolve NULL; don't deref
 	DWORD addr = (DWORD)startCallAddr;
 	DWORD* offset = (DWORD*)(addr + 1);
 	void* _final = (void*)(addr + *offset + 5);

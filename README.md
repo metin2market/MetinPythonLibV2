@@ -294,3 +294,85 @@ v1.1:
 - Added SendUseSkillPacket
 - Fixed some memory leaks
 - Fixed a bug where the pickup was picking wrong items
+
+---
+
+# REBUILD: WalkerPath Revival (Current GF 20/06/26)
+
+> Appended after reviving this DLL for the current GF `metin2client.exe` (32-bit, packed / runtime-decrypted, `psw_tnt`-protected). The README above describes the library's design; this section documents what was changed to make it **build and load** on the current client, and the Phase 2 to-do.
+
+## How this was done
+
+All RE + build surgery was done by **Claude Opus 4.8** (`claude-opus-4-8`) running as an autonomous **Claude Code** agent (extended thinking / high reasoning effort), driving the [**CheatEngine MCP bridge**](https://github.com/miscusi-peek/cheatengine-mcp-bridge) against the live process — **static reads + Lua only, no debugger** (the protection crashes on breakpoints).
+
+An outdated Metin2 [`client-source`](https://github.com/ikevin127/metin2-client-source) was used as a structure/protocol reference. **The human operator does no reverse engineering (a prior by-hand attempt to fix this DLL failed completely); the model figured everything out from the running process and validated it in-game.**
+
+**Build toolchain:**
+- VS2022 (MSVC **v142**)
+- Python 2.7 SDK at `C:\Python27`
+- Detours + AAPathPlaning from `External/`
+
+The server-comms code (libcurl / websocketpp / jsoncpp) was stripped to stubs since those deps aren't present and `USE_BUILTIN_PATTERNS` mode never calls them at runtime.
+
+## RE Techniques
+
+- AOB signatures (ASLR-proof; addresses kept as RVAs)
+- re-derived from fresh disassembly when prologues drifted (mostly `/GS` stack-cookie additions)
+- RVA rebasing across launches; this-pointer / call-graph tracing to singletons
+- `std::map<VID, CInstanceBase*>` traversal + empirical float-dumping to find struct offsets
+- everything validated live in-game (no value-guessing).
+
+## Phase 0 — Diagnosis
+
+Tested all 24 baked signatures (`common/Offsets.h` + `defines.h` `GLOBAL_PATTERN`) against the live module: **11 matched, 13 were dead**.
+
+The DLL crashed on load — `getRelativeCallAddress(NULL)` on the dead `PEEK`, and `DetourAttach(NULL)` on dead hook targets. Module base seen at `0x2F0000` / `0x530000` (ASLR active).
+
+## Phase 1 — Changes made (walker + pathfinding)
+
+- **`OFFSET_CLIENT_CHARACTER_POS` = `0x7BC`** (`defines.h`). Source had `0x7C4` (garbage now); an interim `0x200` was wrong — that's a field on a separate PC-wrapper object, *not* the `CInstanceBase` instances returned by `GetInstancePtr`. The map instances (NPCs **and** the main char, vtbl `0x2D92A54`) store live `{x, y, z}` at `+0x7BC`; `y` is stored negated (existing `pos->y = -iPos->y` is correct).
+- **Re-derived signatures** (`common/Offsets.h`):
+  - `INSTANCEBASE_MOVETODEST` — `CInstanceBase::MoveToDestPosition`, `/GS` prologue.
+  - `PYTHONAPP_PROCESS` — `App::Process`, the per-frame heartbeat that registers the `eXLib` module and runs the scripts; without it nothing initializes.
+  - `PEEK_FUNCTION` — `CNetworkStream::Peek`, now a direct-prologue signature (offset 0) instead of the dead relative-call form; the `peekFunc = getRelativeCallAddress(...)` line in `Memory.cpp` was removed.
+- **Robustness** (`common/utils.h`, `DetoursHook.h`, `Memory.h`): NULL-guard `getRelativeCallAddress`; skip `HookFunction` when the target is NULL; NULL-guard every `call*` wrapper — so a still-dead signature no-ops instead of calling NULL.
+- **`setupHooks()`** (`Memory.cpp`): packet hooks left **uninstalled** (they crashed on the GF packet layer and aren't needed for the walker — `GetPixelPosition` reads memory directly, `MoveToDestPosition` is invoked via the resolved address, `FindPath` is file-based). Only the process-hook heartbeat stays. The **`CheckPacket` hook was later re-enabled** to drive `InstancesList`, using the real `this` the game passes (`CHECK_PACKET`'s first of two hits is the real `CPythonNetworkStream::CheckPacket`); `Peek` reads packet bodies.
+- **Stripped server-comms**: `Communication.h` → header-only stub; dropped `Communication.cpp` / `WebsocketHandler.cpp` from the build; removed the `VMProtectSDK.h` include (it force-linked a missing lib); `Patterns.cpp` set to not use the PCH.
+
+Result: a clean 32-bit `eXLib.dll` (imports only `python27.dll` + system DLLs, static CRT), deployed to `../uBot-WalkerPath/eXLib.mix`.
+
+### Rebuild
+
+```
+MSBuild MetinPythonLib\MetinPythonLib.vcxproj /p:Configuration=Release /p:Platform=Win32 \
+  /p:SolutionDir=<this folder>\ /p:OutDir=<this folder>\build\ \
+  /p:PlatformToolset=v142 /p:WindowsTargetPlatformVersion=10.0.26100.0
+```
+
+Output: `build\eXLib.dll` (rename/copy to `eXLib.mix` for the bot).
+
+### Phase 1 Follow-Up — Teleport Crash Fix (GIL Hardening)
+
+Re-enabling the `CheckPacket` hook (to drive `InstancesList`) surfaced a latent threading bug. The recv handlers call the Python C-API — `PyDict_SetItem/DelItem/Clear` (`InstanceManager.cpp`) and `PyObject_CallObject` for the shop/chat/dig callbacks (`NetworkStream.cpp`) — with **no GIL discipline and no error clearing**, while uBot runs background Python threads (`OpenThreads`).
+
+Light traffic survived; a **map warp** floods us with `clearInstances` + a burst of `CHARACTER_ADD/DEL` + phase packets, reentering `python27.dll` without the GIL and/or with a stray Python error left set → hard `0xc0000005` crash on world reload.
+
+### Fix:
+- **`NetworkStream.cpp::__CheckPacket`** wraps *all* of eXLib's packet post-processing in `PyGILState_Ensure()` / `PyGILState_Release()` and `PyErr_Clear()`s any pending exception before returning. One choke point, so it covers the InstanceManager dict ops and every callback. (`PyGILState_Ensure` is a no-op when the GIL is already held — safe either way)
+- **`App.cpp::initMainThread`** calls `PyEval_InitThreads()` so the GIL machinery exists before that guard runs.
+- Patched two refcount leaks (`callNewInstanceShop`, `callRecvChatCallback` weren't `Py_DECREF`-ing their tuple).
+
+> **Carry this into Phase 2:** any hook re-enabled in Stage 1 that touches Python from the packet/render path needs the same GIL + error-clear discipline.
+
+## Phase 2 — TODO (send/recv packet layer)
+
+Re-derive the still-dead send/recv signatures so combat/skill/sync features work; same methodology as Phase 1 (re-enable hooks one at a time, test for no-crash, keep the NULL-guards).
+
+- **Stage 0 (uBot glue):** `Data._afterLoadPhase` not populating `Data.*`; `net.GetMainActorVID` missing → `player.GetMainCharacterIndex()`; `GAME_WINDOW == 0`.
+- **Stage 1 (signatures):** `SEND`, `SENDCHARACTERSTATE`, `SENDSHOOT`, `PYTHONPLAYER_SENDUSESKILL`, `LOCALTOGLOBAL`; verify `SENDATTACK` / `SENDSEQUENCE` / `MOVETODIRECTION` / `GLOBALTOLOCAL` call through; verify the GF `SSend_*` packet structs.
+- **Stage 2 (features):** combat (DmgHacks) → skills (Skillbot/Buffbot) → farming/mining → movement extras (Telehack/speed) → shops → remainder.
+- **Stage 3 (cleanup):** strip the now-dormant fishing exports (`SendStartFishing` etc.); reconsider the script-side phase-replay workaround.
+
+## ⚠️ Notes
+
+Educational / research use only; game automation violates the game's Terms of Service. No anti-cheat evasion is included — the DLL relies on the same injection path the original `eXLib` used.

@@ -23,6 +23,7 @@ public:
 
 	bool isPathBlocked(int x_start, int y_start, int x_end, int y_end); //USE GAME COORDS
 	bool getClosestUnblocked(int x_start, int y_start, Point* buffer);
+	bool isInGame(); //walker build: in-game detector via GetCurrentMapName (replaces packet-based phase tracking)
 private:
 
 	MapCollision* currMap;
