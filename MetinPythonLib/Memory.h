@@ -25,6 +25,7 @@ public:
 	inline ClassPointer getPythonPlayer() { return *pythonPlayer; };
 	inline ClassPointer getNetworkStream() { return networkStream; };
 	inline void setNetworkStream(ClassPointer val) {networkStream=val; };
+	inline ClassPointer getEffectManager() { return effectManagerPointer ? *effectManagerPointer : 0; };
 
 	//Hooked original functions  (walker build: NULL-guarded so dead-sig features no-op instead of calling NULL)
 	inline bool callBackgroundCheckAdv(ClassPointer p,void* instanceBase) { if(!backgroundCheckAdvHook->originalFunction) return true; return backgroundCheckAdvHook->originalFunction(p, instanceBase);}
@@ -46,6 +47,9 @@ public:
 	inline void* callGetInstancePointer(DWORD vid) { if(!getInstanceFunc) return 0; return getInstanceFunc(getInstanceClassPtr,vid); }
 	inline void callSendUseSkillBySlot(DWORD dwSkillSlotIndex, DWORD dwTargetVID) { if(!sendUseSkillBySlotFunc) return; return sendUseSkillBySlotFunc(getPythonPlayer(), dwSkillSlotIndex, dwTargetVID); }
 	inline bool callPeek(int len, void*buffer) { if(!peekFunc) return false; return peekFunc(getNetworkStream(),len,buffer); }
+	//CEffectManager (main-thread / D3D; only call from the python / App::Process path). NULL-guarded so a missing sig no-ops.
+	inline bool callRegisterEffect(const char* fileName) { if(!registerEffectFunc || !getEffectManager()) return false; return registerEffectFunc(getEffectManager(), fileName, false, false) != 0; }
+	inline int callCreateEffect(const char* fileName, fPoint3D* pos, fPoint3D* rot) { if(!createEffectFunc || !getEffectManager()) return -1; return createEffectFunc(getEffectManager(), fileName, pos, rot); }
 
 	void setSkipRenderer();
 	void unsetSkipRenderer();
@@ -104,6 +108,9 @@ private:
 	tGetInstancePointer		getInstanceFunc;
 	tSendUseSkillBySlot		sendUseSkillBySlotFunc;
 	tPeek					peekFunc;
+	tRegisterEffect			registerEffectFunc;
+	tCreateEffect			createEffectFunc;
+	ClassPointer*			effectManagerPointer;
 
 	ClassPointer* pythonNetwork;
 	ClassPointer* pythonChrMgr;

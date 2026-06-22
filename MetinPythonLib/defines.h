@@ -39,6 +39,9 @@
 #define CHECK_PACKET_FUNCTION 22
 #define PEEK_FUNCTION 23
 #define RENDER_MID_FUNCTION 24
+#define EFFECT_MANAGER_POINTER 25
+#define EFFECT_REGISTER_FUNCTION 26
+#define EFFECT_CREATE_FUNCTION 27
 
 
 #define GLOBAL_PATTERN "\x55\x8b\xec\x83\xec\x00\x89\x4d\x00\xc6\x45\x00\x00\x8d\x45\x00\x50\x8b\x4d\x00\xe8\x00\x00\x00\x00\x0f\xb6\x00\x85\xc9\x75\x00\x32\xc0\xe9\x00\x00\x00\x00\x8b\x4d\x00\xe8\x00\x00\x00\x00\x0f\xb6\x00\x85\xd2\x75\x00\xb0\x00\xeb\x00\x8d\x45\x00\x89\x45\x00\x8b\x4d\x00\xc6\x01\x00\xba\x00\x00\x00\x00\x8b\x45\x00\x66\x89\x50\x00\x6a\x00\x6a\x00\x8d\x4d\x00\x51\xe8\x00\x00\x00\x00\x83\xc4\x00\xc6\x45\x00\x00\xc6\x45\x00\x00\x8b\x55"
@@ -69,6 +72,12 @@ typedef bool(__thiscall* tSendAttackPacket)(ClassPointer classPointer, BYTE type
 
 typedef void* (__thiscall* tGetInstancePointer)(ClassPointer classPointer, DWORD vid);
 typedef bool (__thiscall* tProcess)(ClassPointer classPointer);
+
+// CEffectManager (CSingleton<CEffectManager>), __thiscall on the singleton 'this'.
+// RegisterEffect loads/caches the .mse effect; CreateEffect spawns an instance at position
+// with rotation (degrees; z = heading). Called from the python/App::Process path = main thread = D3D-safe.
+typedef int(__thiscall* tRegisterEffect)(ClassPointer classPointer, const char* fileName, bool isExistDelete, bool isNeedCache);
+typedef int(__thiscall* tCreateEffect)(ClassPointer classPointer, const char* fileName, fPoint3D* position, fPoint3D* rotation);
 
 typedef bool(__thiscall* tGet)(ClassPointer classPointer, CMappedFile& rMappedFile, const char* c_szFileName, LPCVOID* pData);
 

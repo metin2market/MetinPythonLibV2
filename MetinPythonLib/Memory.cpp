@@ -176,6 +176,11 @@ bool CMemory::setupPatterns(HMODULE hDll)
 	globalToLocalFunc = (tGlobalToLocalPosition)addrLoader.GetAddress(GLOBALTOLOCAL_FUNCTION);
 	peekFunc = (tPeek)addrLoader.GetAddress(PEEK_FUNCTION);
 
+	// CEffectManager: one sig (StoneDetect Register+Create block) yields all three.
+	registerEffectFunc = (tRegisterEffect)getRelativeCallAddress(addrLoader.GetAddress(EFFECT_REGISTER_FUNCTION));
+	createEffectFunc = (tCreateEffect)getRelativeCallAddress(addrLoader.GetAddress(EFFECT_CREATE_FUNCTION));
+	effectManagerPointer = SetClassPointer((DWORD**)addrLoader.GetAddress(EFFECT_MANAGER_POINTER));
+
 	//peekFunc = (tPeek)getRelativeCallAddress((void*)peekFunc); // walker build: PEEK_FUNCTION is now a direct function sig (offset 0), not a call site
 	globalToLocalFunc = (tGlobalToLocalPosition)getRelativeCallAddress((void*)globalToLocalFunc);
 	recvAddr = getRelativeCallAddress(recvAddr);

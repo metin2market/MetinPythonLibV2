@@ -6,6 +6,7 @@
 #include "Background.h"
 #include "Player.h"
 #include "Communication.h"
+#include "Memory.h"
 //#include "VMProtectSDK.h" // walker build: VMProtect unused (all calls commented) - drop to avoid VMProtectSDK32.lib dependency
 
 /* PyObject* playerModule;
@@ -48,6 +49,72 @@ PyObject* moveToDestPosition(PyObject* poSelf, PyObject* poArgs)
 	return Py_BuildNone();
 }
 
+// ---- CEffectManager exposure (stone compass + general client-side effects) ----
+
+// Client GameUtil GetDegreeFromPosition: heading of (dx,dy) measured from -Y axis, clockwise, 0..360.
+static float computeDegreeFromPosition(float dx, float dy)
+{
+  if (dx == 0.0f && dy == 0.0f) return 0.0f;
+  float deg = (float)(atan2((double)dx, (double)(-dy)) * (180.0 / 3.14159265358979323846));
+  if (deg < 0.0f) deg += 360.0f;
+  return deg;
+}
+
+
+PyObject* pyRegisterEffect(PyObject* poSelf, PyObject* poArgs)
+{
+  char* fileName = 0;
+  if (!PyArg_ParseTuple(poArgs, "s", &fileName))
+    return Py_BuildException();
+  CMemory& mem = CMemory::Instance();
+  return Py_BuildValue("i", mem.callRegisterEffect(fileName) ? 1 : 0);
+}
+
+PyObject* pyCreateEffect(PyObject* poSelf, PyObject* poArgs)
+{
+  char* fileName = 0;
+  float px = 0, py = 0, pz = 0, rx = 0, ry = 0, rz = 0;
+  if (!PyArg_ParseTuple(poArgs, "sffffff", &fileName, &px, &py, &pz, &rx, &ry, &rz))
+    return Py_BuildException();
+  CMemory& mem = CMemory::Instance();
+  mem.callRegisterEffect(fileName); // ensure loaded (cheap no-op if already registered)
+  fPoint3D pos = { px, py, pz };
+  fPoint3D rot = { rx, ry, rz };
+  return Py_BuildValue("i", mem.callCreateEffect(fileName, &pos, &rot));
+}
+
+PyObject* pyGetDegreeFromPosition(PyObject* poSelf, PyObject* poArgs)
+{
+  float dx = 0, dy = 0;
+  if (!PyArg_ParseTuple(poArgs, "ff", &dx, &dy))
+    return Py_BuildException();
+  return Py_BuildValue("f", computeDegreeFromPosition(dx, dy));
+}
+
+// StoneDetect(originX, originY, originZ, targetX, targetY, effectFile [, angleOffset])
+// Spawns effectFile at the origin, rotated to point toward (targetX,targetY). Returns the angle used (for tuning).
+PyObject* pyStoneDetect(PyObject* poSelf, PyObject* poArgs)
+{
+  float ox = 0, oy = 0, oz = 0, tx = 0, ty = 0, angleOffset = 0.0f;
+  char* effectFile = 0;
+  if (!PyArg_ParseTuple(poArgs, "fffffs|f", &ox, &oy, &oz, &tx, &ty, &effectFile, &angleOffset))
+    return Py_BuildException();
+  // chr.GetPixelPosition ("bot space") has Y flipped vs the effect manager's render space
+  // (the client's StoneDetect handler does NEW_GetPixelPosition then y *= -1). Convert origin
+  // + target to render space (negate Y) for BOTH the spawn position and the heading, otherwise
+  // the effect spawns ~2*Y away off-screen.
+  float oyR = -oy;
+  float tyR = -ty;
+  float angle = computeDegreeFromPosition(tx - ox, tyR - oyR) + angleOffset;
+  while (angle < 0.0f) angle += 360.0f;
+  while (angle >= 360.0f) angle -= 360.0f;
+  CMemory& mem = CMemory::Instance();
+  mem.callRegisterEffect(effectFile);
+  fPoint3D pos = { ox, oyR, oz };
+  fPoint3D rot = { 0.0f, 0.0f, angle };
+  mem.callCreateEffect(effectFile, &pos, &rot);
+  return Py_BuildValue("f", angle);
+}
 
 
 PyObject* pySetMoveSpeed(PyObject* poSelf, PyObject* poArgs)
@@ -969,6 +1036,11 @@ static PyMethodDef s_methods[] =
 	{ "GetPixelPosition",		GetPixelPosition,	METH_VARARGS},
 	{ "MoveToDestPosition",     moveToDestPosition, METH_VARARGS},
 	{ "SetMoveSpeedMultiplier",	pySetMoveSpeed,		METH_VARARGS},
+
+	{ "RegisterEffect",			pyRegisterEffect,		METH_VARARGS},
+	{ "CreateEffect",			pyCreateEffect,			METH_VARARGS},
+	{ "GetDegreeFromPosition",	pyGetDegreeFromPosition,METH_VARARGS},
+	{ "StoneDetect",			pyStoneDetect,			METH_VARARGS},
 //#endif
 
 	{ "SyncPlayerPosition", pySyncPlayerPosition ,	METH_VARARGS},
