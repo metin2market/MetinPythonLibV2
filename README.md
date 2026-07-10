@@ -277,16 +277,15 @@ By default every packet will be shown.
 
 ## Compiling Notes
 
-Python 2.7 (32 bits) needs to be installed in the system (C:/Python27) by default.
+Run **`build.ps1`** from this folder (see [Rebuild](#rebuild) below). It needs **32-bit** Python 2.7 at
+`C:\Python27` (the client is 32-bit, so the DLL and the Python it links against must be too) and
+**VS 2022 Build Tools** with the C++ workload.
 
-- Dependencies using vcpkg:
-  cpprestsdk -> ```vcpkg install --recurse cpprestsdk[default-features,websockets]:x86-windows-static```
-  curl -> ```vcpkg install curl[core,openssl]:x86-windows-static```
-  jsoncpp -> ```vcpkg install jsoncpp:x86-windows-static```
-  websocketpp -> ```vcpkg install websocketpp:x86-windows-static```
-  boost -> ```vcpkg install boost:x86-windows-static```
+The vcpkg deps the *old* build required (cpprestsdk, curl, jsoncpp, websocketpp, boost — all
+`:x86-windows-static`) are **no longer needed**: the server-comms layer is stubbed in the current
+`USE_BUILTIN_PATTERNS` build, so nothing links them. Kept here only as history.
 
-Also the project is using [SimpleIni](https://github.com/brofield/simpleini) to parse the .ini configuration file and [Date](https://github.com/HowardHinnant/date) to format date.
+The project also uses [SimpleIni](https://github.com/brofield/simpleini) to parse the .ini config and [Date](https://github.com/HowardHinnant/date) to format dates.
 
 # Updates
 v1.1:
@@ -308,8 +307,8 @@ All RE + build surgery was done by **Claude Opus 4.8** (`claude-opus-4-8`) runni
 An outdated Metin2 [`client-source`](https://github.com/ikevin127/metin2-client-source) was used as a structure/protocol reference. **The human operator does no reverse engineering (a prior by-hand attempt to fix this DLL failed completely); the model figured everything out from the running process and validated it in-game.**
 
 **Build toolchain:**
-- VS2022 (MSVC **v142**)
-- Python 2.7 SDK at `C:\Python27`
+- VS 2022 Build Tools (originally built on MSVC **v142**; now builds on **v143** — see the v143 notes under [Rebuild](#rebuild))
+- **32-bit** Python 2.7 SDK at `C:\Python27`
 - Detours + AAPathPlaning from `External/`
 
 The server-comms code (libcurl / websocketpp / jsoncpp) was stripped to stubs since those deps aren't present and `USE_BUILTIN_PATTERNS` mode never calls them at runtime.
@@ -343,10 +342,27 @@ Result: a clean 32-bit `eXLib.dll` (imports only `python27.dll` + system DLLs, s
 
 ### Rebuild
 
+Run the script from this folder:
+
+```
+.\build.ps1
+```
+
+It produces `build\eXLib.dll` (rename/copy to `eXLib.mix` for the bot).
+
+**Building on VS 2022 / v143** (the original build used VS 2019 / v142) needed three adjustments,
+all baked into `build.ps1`:
+- `/p:PlatformToolset=v143` — we have the 2022 toolset, not v142. Harmless: the RE offsets describe the *game's* code, not ours.
+- `/p:WholeProgramOptimization=false` — lets the v143 linker consume the v142-built `External\AAPathPlaning.lib` without a `C1047` compiler-version mismatch.
+- `common/SimpleIni.h` was patched to drop `std::binary_function` (removed from the modern MSVC STL).
+
+Raw command the script wraps:
+
 ```
 MSBuild MetinPythonLib\MetinPythonLib.vcxproj /p:Configuration=Release /p:Platform=Win32 \
   /p:SolutionDir=<this folder>\ /p:OutDir=<this folder>\build\ \
-  /p:PlatformToolset=v142 /p:WindowsTargetPlatformVersion=10.0.26100.0
+  /p:PlatformToolset=v143 /p:WholeProgramOptimization=false \
+  /p:WindowsTargetPlatformVersion=10.0.26100.0
 ```
 
 Output: `build\eXLib.dll` (rename/copy to `eXLib.mix` for the bot).
