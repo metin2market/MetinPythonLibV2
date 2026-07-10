@@ -84,13 +84,14 @@ typedef bool(__thiscall* tGet)(ClassPointer classPointer, CMappedFile& rMappedFi
 
 
 #pragma pack(push, 1)
+// CMappedFile : public CFileBase -- see refs/metin2-client-source/EterBase/{MappedFile,FileBase}.h.
+// The tail (m_pbBufLinkData .. m_pLZObj) matches the source struct exactly. The leading bytes are the
+// CFileBase base (m_mode, m_filename[MAX_PATH+1], m_hFile, m_dwSize); current GF lays that base out
+// larger than the 2014 source, so m_dwSize is pinned empirically at 0x11C, not derived from it.
 struct CMappedFile {
 	void* v_table;
-	//int				m_mode;
-	//char			m_filename[MAX_PATH + 1];
-	//HANDLE			m_hFile;
-	BYTE		uknown[280];
-	DWORD		m_dwSize;//0x11C needs fix
+	BYTE		unknown[280];   // CFileBase base (m_mode / m_filename / m_hFile) -- size RE'd, not from source
+	DWORD		m_dwSize;       // 0x11C, verified live
 
 	BYTE* m_pbBufLinkData;
 	DWORD		m_dwBufLinkSize;
@@ -155,7 +156,9 @@ enum {
 	UNSUCESS_ON_FISHING = 0
 };
 
-//Packet Headers
+// Packet Headers -- current GF values, RE'd from the live client. Version-specific: these
+// numeric IDs differ from the refs/ sources (the 2014 leak has CHARACTER_ADD=1), so cross-check
+// packet struct *layouts* against the refs, never the IDs. Re-derive after a client patch.
 	enum {
 		//FROM SERVER
 		HEADER_GC_CHARACTER_ADD = 125,
