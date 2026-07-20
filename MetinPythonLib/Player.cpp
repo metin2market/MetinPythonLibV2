@@ -112,8 +112,9 @@ CPlayer::CPlayer() : lastDestPos(0,0)
 
 CPlayer::~CPlayer()
 {
-	Py_DECREF(chr_mod);
-	Py_DECREF(player_mod);
+	// Deliberately empty: this runs from the atexit chain at DLL unload, after the client has
+	// finalized Python, so chr_mod/player_mod are NULL or dangling and any Py_DECREF here
+	// faults. The process is exiting anyway — the interpreter's teardown owns these.
 }
 
 void CPlayer::importPython()

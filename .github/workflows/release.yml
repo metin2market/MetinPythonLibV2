@@ -2,7 +2,7 @@ name: Release
 
 # One-click releases. Pick a semver bump from the Actions tab (or `gh workflow run`);
 # CI computes the next version, builds eXLib.dll on Windows, tags, and publishes a
-# GitHub Release with the DLL attached.
+# GitHub Release with the DLL and its .pdb attached.
 #
 # Git tags are the version source of truth - there is no manifest to bump.
 # Downstream (m2bot) consumes the published asset instead of building this itself.
@@ -66,4 +66,8 @@ jobs:
           tag_name: ${{ steps.v.outputs.version }}
           name: ${{ steps.v.outputs.version }}
           generate_release_notes: true
-          files: build/eXLib.dll
+          # The .pdb is paired to this exact link by GUID and cannot be regenerated later,
+          # so it ships with the release or the build is permanently unsymbolizable.
+          files: |
+            build/eXLib.dll
+            build/eXLib.pdb
