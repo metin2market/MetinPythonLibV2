@@ -176,6 +176,7 @@
       <PreprocessorDefinitions>NDEBUG;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)NOMINMAX</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <PrecompiledHeader>Use</PrecompiledHeader>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
@@ -183,7 +184,9 @@
       <AdditionalDependencies>Crypt32.Lib;Wldap32.Lib;Ws2_32.Lib;Shlwapi.lib;python27.lib;%(AdditionalDependencies);detours.lib;;AAPathPlaning.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>C:\Python27\libs;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>/DHAVE_SNPRINTF %(AdditionalOptions)</AdditionalOptions>
-      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <!-- Symbols for crash triage. /Zi and /DEBUG do not change codegen, and OPT:REF/ICF are
+           pinned above, so the shipped .text is unaffected — only a CodeView record is added. -->
+      <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseL|Win32'">
