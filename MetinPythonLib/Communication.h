@@ -40,10 +40,6 @@ public:
 	int GetRequest(std::string& url, ComCallbackFunction callback, int id = 0) { return -1; }
 	int GetRequest(const char* url, ComCallbackFunction callback, int id = 0) { return -1; }
 
-	int OpenWebsocket(const char* host, ComCallbackFunction callback) { return -1; }
-	bool WebsocketSend(int id, const char* message) { return false; }
-	bool CloseWebsocket(int id) { return false; }
-
 	int MainServerSetAuthKey() { return 1; }
 	int MainServerGetOffsets(std::map<int, DWORD>* bufferOffsets, const char* server = "GF") { return 0; }
 	bool IsPremiumUser() { return true; }

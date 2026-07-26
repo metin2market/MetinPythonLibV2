@@ -295,7 +295,6 @@
     <ClInclude Include="Singleton.h" />
     <ClInclude Include="SleepFunctionHook.h" />
     <ClInclude Include="stdafx.h" />
-    <ClInclude Include="WebsocketHandler.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
