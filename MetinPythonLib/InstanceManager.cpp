@@ -78,6 +78,9 @@ void CInstanceManager::appendNewInstance(SRcv_PlayerCreatePacket& player)
 
 void CInstanceManager::deleteInstance(DWORD vid)
 {
+	// A shop can be keyed here on the stall's own vid; drop its sign whether or not the
+	// instance itself was tracked, so a recycled vid never returns a stale sign.
+	shopSigns.erase(vid);
 	if (instances.find(vid) == instances.end()) {
 		DEBUG_INFO_LEVEL_3("On deleting instance with vid=%d doesn't exists, ignoring packet!", vid);
 		return;
@@ -87,6 +90,24 @@ void CInstanceManager::deleteInstance(DWORD vid)
 		PyErr_Clear();
 	Py_DECREF(pVid);
 	instances.erase(vid);
+}
+
+void CInstanceManager::setShopSign(DWORD vid, const char* sign)
+{
+	if (sign && sign[0]) {
+		shopSigns[vid] = sign;
+		DEBUG_INFO_LEVEL_3("Shop sign vid=%d -> '%s'", vid, sign);
+	}
+	else {
+		shopSigns.erase(vid); // empty sign = shop closed / sign cleared
+		DEBUG_INFO_LEVEL_3("Shop sign vid=%d cleared", vid);
+	}
+}
+
+std::string CInstanceManager::getShopSign(DWORD vid)
+{
+	auto it = shopSigns.find(vid);
+	return it == shopSigns.end() ? std::string() : it->second;
 }
 
 void CInstanceManager::changeInstanceIsDead(DWORD vid, BYTE isDead)
@@ -129,6 +150,7 @@ void CInstanceManager::clearInstances()
 	DEBUG_INFO_LEVEL_2("Instances Cleared");
 	instances.clear();
 	groundItems.clear();
+	shopSigns.clear();
 	PyDict_Clear(pyVIDList);
 }
 

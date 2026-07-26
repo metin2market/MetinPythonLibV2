@@ -548,6 +548,19 @@ PyObject* pyEnableCollisions(PyObject* poSelf, PyObject* poArgs)
 	return Py_BuildNone();
 }
 
+// GetShopSign(vid) -> str -- the private-shop sign captured from HEADER_GC_SHOP_SIGN,
+// or '' if none is known for this vid (docs/shop-name.md). Pull side of the sign capture.
+PyObject* pyGetShopSign(PyObject* poSelf, PyObject* poArgs)
+{
+	int vid;
+	if (!PyTuple_GetInteger(poArgs, 0, &vid))
+		return Py_BuildException();
+
+	CInstanceManager& mgr = CInstanceManager::Instance();
+	std::string sign = mgr.getShopSign((DWORD)vid);
+	return Py_BuildValue("s", sign.c_str());
+}
+
 PyObject* pyRegisterNewShopCallback(PyObject* poSelf, PyObject* poArgs)
 {
 	PyObject* obj;
@@ -982,6 +995,7 @@ static PyMethodDef s_methods[] =
 	{ "EnableCollisions",		pyEnableCollisions,	METH_VARARGS },
 	{ "DisableCollisions",		pyDisableCollisions,METH_VARARGS },
 	{ "RegisterNewShopCallback",pyRegisterNewShopCallback,METH_VARARGS },
+	{ "GetShopSign",			pyGetShopSign,		METH_VARARGS },
 	{ "SendUseSkillPacket",		pySendUseSkillPacket,METH_VARARGS },
 	{ "SendUseSkillPacketBySlot",pySendUseSkillPacketBySlot,METH_VARARGS },
 

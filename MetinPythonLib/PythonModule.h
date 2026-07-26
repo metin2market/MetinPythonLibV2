@@ -30,6 +30,7 @@ PyObject* pyUnblockFishingPackets(PyObject* poSelf, PyObject* poArgs);
 PyObject* pyDisableCollisions(PyObject* poSelf, PyObject* poArgs);
 PyObject* pyEnableCollisions(PyObject* poSelf, PyObject* poArgs);
 PyObject* pyRegisterNewShopCallback(PyObject* poSelf, PyObject* poArgs);
+PyObject* pyGetShopSign(PyObject* poSelf, PyObject* poArgs);
 PyObject* pySendUseSkillPacket(PyObject* poSelf, PyObject* poArgs);
 PyObject* pySendUseSkillPacketBySlot(PyObject* poSelf, PyObject* poArgs);
 PyObject* pyRecvDigMotionCallback(PyObject* poSelf, PyObject* poArgs);

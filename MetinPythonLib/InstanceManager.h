@@ -6,6 +6,7 @@
 #include "PythonUtils.h"
 #include <map>
 #include <unordered_map>
+#include <string>
 
 class CInstanceManager : public CSingleton<CInstanceManager>
 {
@@ -36,6 +37,14 @@ public:
 	inline DWORD getInstanceRace(DWORD vid) { auto it = instances.find(vid); return it != instances.end() ? it->second.wRaceNum : 0; }
 	inline PyObject* getVIDList() { return pyVIDList; };
 
+	// Shop-sign store (docs/shop-name.md). The HEADER_GC_SHOP_SIGN packet arrives
+	// passively when a shop enters view -- long before the scanner opens it -- so the
+	// sign has to be buffered here and pulled on demand (eXLib.GetShopSign). An empty
+	// sign clears the entry (the server sends one on shop close). Lifecycle mirrors
+	// `instances`: erased on deleteInstance, wiped on clearInstances (map warp).
+	void setShopSign(DWORD vid, const char* sign);
+	std::string getShopSign(DWORD vid);
+
 	//Pickup filter
 	inline void clearFilter() { pickupFilter.clear(); };
 	inline void addItemFilter(DWORD index) {DEBUG_INFO_LEVEL_3("Pickup Filter Add=%d", index);pickupFilter.insert(index);};
@@ -59,5 +68,6 @@ private:
 	std::set<DWORD> pickupFilter;
 	std::map<DWORD, SGroundItem> groundItems;
 	std::unordered_map<DWORD, SInstance> instances;
+	std::unordered_map<DWORD, std::string> shopSigns;   // vid -> private-shop sign
 };
 

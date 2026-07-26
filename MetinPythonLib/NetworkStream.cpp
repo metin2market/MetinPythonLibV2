@@ -973,6 +973,21 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 		}
 		break;
 	}
+
+	// Private-shop sign (docs/shop-name.md). Store it (empty = shop closed); the scanner
+	// pulls it via eXLib.GetShopSign when it reads the shop. Passive peek, no send.
+	case HEADER_GC_SHOP_SIGN: {
+		SRcv_ShopSignPacket sign;
+		if (peekNetworkStream(sizeof(SRcv_ShopSignPacket), &sign)) {
+			sign.szSign[sizeof(sign.szSign) - 1] = '\0'; // guard against a non-terminated field
+			CInstanceManager& mgr = CInstanceManager::Instance();
+			mgr.setShopSign(sign.dwVID, sign.szSign);
+		}
+		else {
+			DEBUG_INFO_LEVEL_2("Could not parse shop-sign packet!");
+		}
+		break;
+	}
 	}
 
 	return true;

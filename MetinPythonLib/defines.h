@@ -252,10 +252,13 @@ struct SSend_CharacterStatePacket
 	DWORD		dwTime;
 };
 
-struct SRcv_RegisterShopPacket
+// Shop-sign (private-shop title) packet -- header HEADER_GC_SHOP_SIGN (26 on GF), keyed on
+// the shop-stall VID. szSign is SHOP_SIGN_MAX_LEN(32)+1. See docs/shop-name.md.
+struct SRcv_ShopSignPacket
 {
 	BYTE		header;
 	DWORD		dwVID;
+	char		szSign[33];
 };
 
 struct SSend_AddFlyTargetingPacket
