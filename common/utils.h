@@ -15,7 +15,10 @@ bool isDebugEnable();
 void setDebugOn();
 void setDebugOff();
 
-#define SUBPATH_MAPS "OpenBot\\Maps\\"
+// Collision-map cache dir, relative to the dir holding eXLib.mix. Must stay inside a payload
+// dir this fork's deploy actually ships -- OpenBot\ is on the deploy's legacy-cleanup list and
+// gets deleted, which would strip the shipped .dat and re-derive it from the client every run.
+#define SUBPATH_MAPS "Resources\\Maps\\"
 
 #define ADRESS_FILE_NAME "addresses.csv"
 
