@@ -1,6 +1,6 @@
-import re, sys
-root = r"C:\Users\kevin\Desktop\MetinPythonLib-WalkerPath"
-off = open(root + r"\common\Offsets.h", encoding="utf-8", errors="ignore").read()
+import re, sys, os
+root = os.path.dirname(os.path.abspath(__file__))
+off = open(os.path.join(root, "common", "Offsets.h"), encoding="utf-8", errors="ignore").read()
 
 def unescape_bytes(s):
     out=[]; i=0
