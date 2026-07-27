@@ -10,8 +10,8 @@ CBackground::CBackground()
 
 CBackground::~CBackground()
 {
-	freeCurrentMap();
-	Py_DECREF(background_mod);
+	freeCurrentMap(); // plain delete, safe at unload
+	// No Py_DECREF(background_mod) — see ~CPlayer: Python is already finalized by this point.
 }
 
 void CBackground::importPython()
