@@ -1,9 +1,9 @@
-import re, json, sys
+import re, json, sys, os
 
 # Parse Offsets.h memPatterns + defines.h GLOBAL_PATTERN into CE AOB strings.
-root = r"C:\Users\kevin\Desktop\MetinPythonLibV2"
-off = open(root + r"\common\Offsets.h", encoding="utf-8", errors="ignore").read()
-dfn = open(root + r"\MetinPythonLib\defines.h", encoding="utf-8", errors="ignore").read()
+root = os.path.dirname(os.path.abspath(__file__))
+off = open(os.path.join(root, "common", "Offsets.h"), encoding="utf-8", errors="ignore").read()
+dfn = open(os.path.join(root, "MetinPythonLib", "defines.h"), encoding="utf-8", errors="ignore").read()
 
 def unescape_bytes(s):
     # s is the raw C string content with \xHH escapes
@@ -46,7 +46,7 @@ if gm and gk:
         print("LEN MISMATCH GLOBAL_PATTERN: bytes=%d mask=%d" % (len(byts), len(mask)), file=sys.stderr)
     results["GLOBAL_PATTERN"] = {"offset": "0", "len": len(byts), "aob": to_aob(byts, mask)}
 
-open(root + r"\patterns_aob.json", "w").write(json.dumps(results, indent=1))
+open(os.path.join(root, "patterns_aob.json"), "w").write(json.dumps(results, indent=1))
 print("parsed %d patterns" % len(results))
 for k in results:
     print("%-32s len=%-3d off=%s" % (k, results[k]["len"], results[k]["offset"]))
