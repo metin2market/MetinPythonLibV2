@@ -1,0 +1,32 @@
+# MSBuild output & intermediate dirs (regenerated on every build)
+[Dd]ebug/
+[Rr]elease*/
+[Xx]64/
+[Xx]86/
+ipch/
+.vs/
+
+# Compiler / linker intermediate & output files
+*.obj
+*.o
+*.pch
+*.pdb
+*.idb
+*.ipdb
+*.iobj
+*.ilk
+*.tlog
+*.log
+*.lastbuildstate
+*.unsuccessfulbuild
+*.recipe
+*.exp
+*.res
+*.FileListAbsolute.txt
+
+# Visual Studio user-specific settings
+*.vcxproj.user
+
+# NOTE: build/eXLib.dll is the published artifact and stays tracked, and the
+# vendored deps in External/ (detours.lib, AAPathPlaning.lib) are committed on
+# purpose -- hence no build/ rule and no bare *.lib rule above.
