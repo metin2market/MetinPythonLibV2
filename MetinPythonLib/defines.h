@@ -26,8 +26,6 @@
 #define INSTANCEBASE_MOVETODEST 5
 #define MOVETODIRECTION_FUNCTION 6
 #define PYTHONPLAYER_SENDUSESKILL 7
-#define TRACEF_POINTER 8
-#define TRACENF_POINTER 9
 #define GLOBALTOLOCAL_FUNCTION 10
 #define LOCALTOGLOBAL_FUNCTION 11
 #define SEND_FUNCTION 13
@@ -58,7 +56,6 @@ typedef DWORD ClassPointer;
 struct CMappedFile;
 
 //Functions
-typedef void(__cdecl* tTracef)(const char* c_szFormat, ...);
 typedef bool(__thiscall* tRecvPacket)(ClassPointer classPointer, int size, void* buffer);
 typedef bool(__thiscall* tSendPacket)(ClassPointer classPointer, int size, void* buffer);
 typedef bool(__thiscall* tSendSequencePacket)(ClassPointer classPointer);
@@ -417,6 +414,9 @@ struct SInstance {
 	BYTE	bMovingSpeed;
 	BYTE	bAttackSpeed;
 	BYTE	bStateFlag;
+	// Synthesised from a move packet that arrived before its CHARACTER_ADD: every field but vid is
+	// zero, so the real add still has to overwrite it (see CInstanceManager::appendNewInstance).
+	bool	placeholder;
 };
 
 struct SGroundItem {

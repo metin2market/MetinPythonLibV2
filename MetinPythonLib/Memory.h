@@ -20,20 +20,28 @@ public:
 
 	bool setupProcessHook();
 
-	inline ClassPointer getPythonNetwork() { return *pythonNetwork; };
-	inline ClassPointer getPythonChrMgr() { return *pythonChrMgr; };
-	inline ClassPointer getPythonPlayer() { return *pythonPlayer; };
+	// A dead signature leaves a pattern-derived singleton pointer NULL, so getPythonNetwork/ChrMgr/
+	// Player (and getEffectManager below) return 0. Never pass that 0 on as a `this` -- the fault just
+	// moves into the client's code where it can't be attributed; every call* wrapper that passes one
+	// checks it alongside its function pointer, and new ones must too. getNetworkStream() is exempt:
+	// it is not pattern-derived but the live `this` captured by the __CheckPacket hook, 0 only before
+	// the first packet, and its callers are on the packet path where it is necessarily non-zero.
+	inline ClassPointer getPythonNetwork() { return pythonNetwork ? *pythonNetwork : 0; };
+	inline ClassPointer getPythonChrMgr() { return pythonChrMgr ? *pythonChrMgr : 0; };
+	inline ClassPointer getPythonPlayer() { return pythonPlayer ? *pythonPlayer : 0; };
 	inline ClassPointer getNetworkStream() { return networkStream; };
 	inline void setNetworkStream(ClassPointer val) {networkStream=val; };
 	inline ClassPointer getEffectManager() { return effectManagerPointer ? *effectManagerPointer : 0; };
 	int GetDialogAnswerCount();   // # options in the current NPC dialog (max TEventSet.nAnswer); 0 if none, -1 if unresolved
 
-	//Hooked original functions  (walker build: NULL-guarded so dead-sig features no-op instead of calling NULL)
+	//Hooked original functions. A dead sig leaves originalFunction NULL, so each wrapper checks it
+	//rather than calling 0. The two CheckAdv wrappers fail CLOSED -- they return true, which means
+	//"collision", so a dead sig blocks movement; "fixing" them to false turns eXLib into a wallhack.
 	inline bool callBackgroundCheckAdv(ClassPointer p,void* instanceBase) { if(!backgroundCheckAdvHook->originalFunction) return true; return backgroundCheckAdvHook->originalFunction(p, instanceBase);}
 	inline bool callIntsanceBaseCheckAdv(ClassPointer p) { if(!instanceBaseCheckAdvHook->originalFunction) return true; return instanceBaseCheckAdvHook->originalFunction(p); }
 	inline bool callSendSequence() { if(!sendSequenceHook->originalFunction) return false; return sendSequenceHook->originalFunction(getNetworkStream()); }
 	inline bool callSendPacket(int size, void* buffer, ClassPointer classPointer = 0) { if (sendHook->originalFunction && getNetworkStream() && classPointer == 0) return sendHook->originalFunction(getNetworkStream(), size, buffer); return false; }//If network stream is not set, the function will not be called
-	inline bool callSendStatePacket(fPoint& pos, float rot, BYTE eFunc, BYTE uArg) { if(!sendStateHook->originalFunction) return false; return sendStateHook->originalFunction(getPythonNetwork(),pos,rot,eFunc,uArg); }
+	inline bool callSendStatePacket(fPoint& pos, float rot, BYTE eFunc, BYTE uArg) { if(!sendStateHook->originalFunction || !getPythonNetwork()) return false; return sendStateHook->originalFunction(getPythonNetwork(),pos,rot,eFunc,uArg); }
 	inline bool callMoveToDestPosition(ClassPointer p, fPoint& pos) { if(!setMoveToDestPositionHook->originalFunction) return false; return setMoveToDestPositionHook->originalFunction(p, pos); }
 	inline bool callMoveToDirection(ClassPointer p, float rot) { if(!setMoveToDirectionHook->originalFunction) return false; return setMoveToDirectionHook->originalFunction(p, rot); }
 	inline bool callProcess(ClassPointer p) { if(!processHook->originalFunction) return false; return processHook->originalFunction(p); }
@@ -46,16 +54,16 @@ public:
 	// (getNetworkStream(), proven correct) over the resolved NETWORKCLASS_POINTER global; fall back
 	// to the global if a packet hasn't been seen yet. Both SendAttackPacket and SendShootPacket are
 	// CPythonNetworkStream methods, so this 'this' is correct for both.
-	inline bool callSendAttackPacket(BYTE type, DWORD vid) { if(!sendAttackPacketHook->originalFunction) return false; ClassPointer self = getNetworkStream() ? getNetworkStream() : getPythonNetwork(); return sendAttackPacketHook->originalFunction(self, type, vid); }
-	inline bool callSendShootPacket(DWORD uSkill) { if(!sendShootFunc) return false; ClassPointer self = getNetworkStream() ? getNetworkStream() : getPythonNetwork(); return sendShootFunc(self, uSkill); }
-	inline bool callSendUseSkillPacket(DWORD dwSkillIndex, DWORD dwTargetVID) { if(!sendUseSkillPacketFunc) return false; ClassPointer self = getNetworkStream() ? getNetworkStream() : getPythonNetwork(); return sendUseSkillPacketFunc(self, dwSkillIndex, dwTargetVID); }
-	inline bool callGlobalToLocalPosition(long& lx, long& ly){ if(!globalToLocalFunc) return false; return globalToLocalFunc(getPythonNetwork(),lx,ly);}
-	inline bool callLocalToGlobalPosition(long& lx, long& ly) { if(!localToGlobalFunc) return false; return localToGlobalFunc(getPythonNetwork(), lx, ly); }
-	inline void* callGetInstancePointer(DWORD vid) { if(!getInstanceFunc) return 0; return getInstanceFunc(getInstanceClassPtr,vid); }
-	inline void callSendUseSkillBySlot(DWORD dwSkillSlotIndex, DWORD dwTargetVID) { if(!sendUseSkillBySlotFunc) return; return sendUseSkillBySlotFunc(getPythonPlayer(), dwSkillSlotIndex, dwTargetVID); }
+	inline bool callSendAttackPacket(BYTE type, DWORD vid) { ClassPointer self = getNetworkStream() ? getNetworkStream() : getPythonNetwork(); if(!sendAttackPacketHook->originalFunction || !self) return false; return sendAttackPacketHook->originalFunction(self, type, vid); }
+	inline bool callSendShootPacket(DWORD uSkill) { ClassPointer self = getNetworkStream() ? getNetworkStream() : getPythonNetwork(); if(!sendShootFunc || !self) return false; return sendShootFunc(self, uSkill); }
+	inline bool callSendUseSkillPacket(DWORD dwSkillIndex, DWORD dwTargetVID) { ClassPointer self = getNetworkStream() ? getNetworkStream() : getPythonNetwork(); if(!sendUseSkillPacketFunc || !self) return false; return sendUseSkillPacketFunc(self, dwSkillIndex, dwTargetVID); }
+	inline bool callGlobalToLocalPosition(long& lx, long& ly){ if(!globalToLocalFunc || !getPythonNetwork()) return false; return globalToLocalFunc(getPythonNetwork(),lx,ly);}
+	inline bool callLocalToGlobalPosition(long& lx, long& ly) { if(!localToGlobalFunc || !getPythonNetwork()) return false; return localToGlobalFunc(getPythonNetwork(), lx, ly); }
+	inline void* callGetInstancePointer(DWORD vid) { if(!getInstanceFunc || !getInstanceClassPtr) return 0; return getInstanceFunc(getInstanceClassPtr,vid); }
+	inline void callSendUseSkillBySlot(DWORD dwSkillSlotIndex, DWORD dwTargetVID) { if(!sendUseSkillBySlotFunc || !getPythonPlayer()) return; return sendUseSkillBySlotFunc(getPythonPlayer(), dwSkillSlotIndex, dwTargetVID); }
 	// CPythonPlayer::NEW_Attack() -- the animated "hold Space" attack on the CPythonPlayer singleton.
 	// It self-guards (NEW_GetMainActorPtr null-check) so a call outside the game world is a safe no-op.
-	inline void callNewAttack() { if(!newAttackFunc) return; newAttackFunc(getPythonPlayer()); }
+	inline void callNewAttack() { if(!newAttackFunc || !getPythonPlayer()) return; newAttackFunc(getPythonPlayer()); }
 	// Write CPythonPlayer+0x34B44 = the attack-target VID (CE-verified: the exact field CPythonPlayer::
 	// SetAttackTargetVID sets and NEW_Attack reads). python player.SetTarget does NOT set it, so NEW_Attack
 	// had no target -> attacked forward. Setting it makes NEW_Attack do its own native move-to-attack +
@@ -69,11 +77,10 @@ public:
 	void setSkipRenderer();
 	void unsetSkipRenderer();
 
-	DetoursHook<tTracef>* traceFHook;
-	DetoursHook<tTracef>* tracenFHook;
-
 private:
-	inline ClassPointer* SetClassPointer(DWORD** pointer) { if(pointer)return (ClassPointer*)*pointer; };
+	// A dead signature arrives here as NULL; return NULL rather than falling off the end with a
+	// garbage EAX.
+	inline ClassPointer* SetClassPointer(DWORD** pointer) { if (pointer) return (ClassPointer*)*pointer; return 0; };
 
 	
 
@@ -109,8 +116,6 @@ private:
 	void* moveToDestAddr;
 	void* backgroundCheckAdvancingAddr;
 	void* instanceCheckAdvancingAddr;
-	void* traceFFuncAddr;
-	void* tracenFFuncAddr;
 	void* moveToDirectionAddr;
 	void* processAddr;
 	void* checkPacketAddr;

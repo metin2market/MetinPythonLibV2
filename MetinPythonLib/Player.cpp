@@ -19,7 +19,7 @@ bool CPlayer::moveToDestPosition(DWORD vid, fPoint& pos)
 	CMemory& mem = CMemory::Instance();
 	void* p = mgr.getInstancePtr(vid);
 	if (p) {
-		DEBUG_INFO_LEVEL_3("Moving VID %d to position X:%f y:%f", vid, pos.x, pos.y);
+		LOG_DEBUG("Moving VID %d to position X:%f y:%f", vid, pos.x, pos.y);
 		lastMovement = MOVE_POSITION;
 		lastDestPos = pos;
 		return mem.callMoveToDestPosition((DWORD)p, pos);
@@ -51,7 +51,7 @@ void CPlayer::setPixelPosition(fPoint fPos)
 	DWORD actor = net.GetMainCharacterVID();
 	long ret = 0;
 
-	DEBUG_INFO_LEVEL_3("SetPixelPosition x->%d, y->%d vid->%d", (int)fPos.x, (int)fPos.y, (int)actor);
+	LOG_DEBUG("SetPixelPosition x->%d, y->%d vid->%d", (int)fPos.x, (int)fPos.y, (int)actor);
 	// CallMethodRetLong builds+owns each args tuple internally -> no manual refcount to double-free.
 	CallMethodRetLong(chr_mod, "SelectInstance", &ret, "(i)", (int)actor);
 	CallMethodRetLong(chr_mod, "SetPixelPosition", &ret, "(iii)", (int)fPos.x, (int)fPos.y, (int)actor);
@@ -139,7 +139,7 @@ void CPlayer::importPython()
 
 void CPlayer::__GetEter(CMappedFile& file, const char* fileName, void** buffer)
 {
-	DEBUG_INFO_LEVEL_5("Hook Ether_Get called, name=%s", fileName);
+	LOG_TRACE("Hook Ether_Get called, name=%s", fileName);
 	if (getTrigger && strcmp(eterFile.name.c_str(), fileName) == 0) {
 
 		if (eterFile.data != 0) {
@@ -150,12 +150,12 @@ void CPlayer::__GetEter(CMappedFile& file, const char* fileName, void** buffer)
 		eterFile.name = std::string(fileName);
 		eterFile.size = file.m_dwSize;
 	}
-	//DEBUG_INFO_LEVEL_4("Hook Ether_Get Returning");
+	//LOG_TRACE("Hook Ether_Get Returning");
 }
 
 bool CPlayer::__MoveToDestPosition(ClassPointer p ,fPoint& pos)
 {
-	DEBUG_INFO_LEVEL_4("__MoveToDestPosition Called x->%f y->%f", pos.x, pos.y);
+	LOG_TRACE("__MoveToDestPosition Called x->%f y->%f", pos.x, pos.y);
 	lastMovement = MOVE_POSITION;
 	lastDestPos = pos;
 	CMemory& mem = CMemory::Instance();
@@ -164,7 +164,7 @@ bool CPlayer::__MoveToDestPosition(ClassPointer p ,fPoint& pos)
 
 bool CPlayer::__MoveToDirection(ClassPointer p, float rot)
 {
-	DEBUG_INFO_LEVEL_4("__MoveToDirection Called rot=%f", rot);
+	LOG_TRACE("__MoveToDirection Called rot=%f", rot);
 	lastMovement = MOVE_WALK;
 	CMemory& mem = CMemory::Instance();
 	return mem.callMoveToDirection(p, rot);
@@ -172,7 +172,7 @@ bool CPlayer::__MoveToDirection(ClassPointer p, float rot)
 
 bool CPlayer::__BackgroundCheckAdvanced(ClassPointer classPointer, void* instanceBase)
 {
-	//DEBUG_INFO_LEVEL_4("Hook __BackgroundCheckAdvanced called");
+	//LOG_TRACE("Hook __BackgroundCheckAdvanced called");
 	if (wallHackBuildings)
 		return false;
 	else {
@@ -183,7 +183,7 @@ bool CPlayer::__BackgroundCheckAdvanced(ClassPointer classPointer, void* instanc
 
 bool CPlayer::__InstanceBaseCheckAdvanced(ClassPointer classPointer)
 {
-	//DEBUG_INFO_LEVEL_4("Hook __InstanceBaseCheckAdvanced called");
+	//LOG_TRACE("Hook __InstanceBaseCheckAdvanced called");
 	if (wallHackTerrainMonsters)
 		return false;
 	else {

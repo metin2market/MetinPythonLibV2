@@ -7,7 +7,6 @@
 #include "Background.h"
 #include "NetworkStream.h"
 #include "Communication.h"
-#include "../common/Config.h"
 #include <set>
 
 HMODULE hDll = 0;
@@ -49,12 +48,18 @@ static void pinAllModules()
 //   exeBase+0x02EACCD4 global went STALE on GF 26.1.11 -> reads 0 -> pin no-oped -> keys died; see below.
 //   m_apoPhaseWnd at singleton + 0x39C ; PHASE_WINDOW_GAME = 5 (slot's tp_name = "GameWindow")
 //   -> game window = *(singleton + 0x39C + 5*4) = *(singleton + 0x3B0)
-// Every read is range-checked + SEH-guarded, so a wrong offset on a future client just no-ops (and the
-// VEH recovery still catches any residual crash). Runs under the GIL from the process loop.
+// Every read is range-checked + SEH-guarded, so a wrong offset on a future client just no-ops. The VEH is
+// log-only and is NOT a safety net here -- the __except below is. Runs under the GIL from the process loop.
 static bool exReadDwordSafe(DWORD addr, DWORD* out)
 {
-	__try { *out = *(volatile DWORD*)addr; return true; }
-	__except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+	// A fault here is the expected outcome for a stale offset and the __except below is its handler,
+	// so keep the first-chance crash logger out of it (see g_exExpectedFault in App.h).
+	exExpectedFaultEnter();
+	bool ok;
+	__try { *out = *(volatile DWORD*)addr; ok = true; }
+	__except (EXCEPTION_EXECUTE_HANDLER) { ok = false; }
+	exExpectedFaultLeave();
+	return ok;
 }
 static PyObject* g_pinnedGameWnd = 0;
 static void pinGameWindow()
@@ -92,69 +97,6 @@ static void pinGameWindow()
 }
 
 
-// ===================== RUNTIME TOGGLES (debug scaffolding) =====================================
-// Bisect eXLib's always-on subsystems WITHOUT a rebuild or client restart: edit
-//   <clientroot>\exlib_toggles.txt      (one "key=0|1" per line, '#' comments ok)
-// and it takes effect within ~2s (re-read every TOGGLE_POLL frames from the process loop).
-// Missing file / missing key = 1 = current shipping behavior, so an absent file changes nothing.
-// Keys:
-//   gil_guard      1 = hold the GIL around __AppProcess's python work (the world-reload crash fix)
-//   app_python     1 = do ANY python work in __AppProcess (map name, phase replay, autohunt pump)
-//   app_autohunt   1 = per-frame callAutoHunting("OnUpdate")
-//   app_reentry    1 = world re-entry branch (reloadGamePhase + replayGamePhase + onReenter)
-//   packet_gil     1 = hold the GIL in the packet path (NetworkStream CheckPacket)
-// Applied values are echoed to <clientroot>\exlib_toggles.log on every change, so we can confirm
-// a toggle actually landed rather than guessing.
-struct ExToggles {
-	bool gil_guard, app_python, app_autohunt, app_reentry, packet_gil, checkpacket, recover_getattr;
-	ExToggles() : gil_guard(true), app_python(true), app_autohunt(true), app_reentry(true), packet_gil(true), checkpacket(true), recover_getattr(true) {}
-	bool operator!=(const ExToggles& o) const {
-		return gil_guard != o.gil_guard || app_python != o.app_python || app_autohunt != o.app_autohunt
-			|| app_reentry != o.app_reentry || packet_gil != o.packet_gil || checkpacket != o.checkpacket
-			|| recover_getattr != o.recover_getattr;
-	}
-};
-static ExToggles g_tg;
-static int g_tgPoll = 0;
-static const int TOGGLE_POLL = 120;   // frames between re-reads (~2s)
-
-bool ExToggle_PacketGil() { return g_tg.packet_gil; }     // used by NetworkStream.cpp
-bool ExToggle_RecoverGetattr() { return g_tg.recover_getattr; }  // used by main.cpp -- 0 disables the VEH
-                                                          // getattr-UAF recovery (to verify the pin alone holds)
-bool ExToggle_CheckPacket() { return g_tg.checkpacket; }  // used by NetworkStream.cpp -- 0 skips the packet-hook
-                                                          // python processing (InstancesList + callbacks) to
-                                                          // bisect the teleport UAF. Entity detection stops when 0.
-
-static void reloadToggles() {
-	std::string path(getDllPath());
-	path += "exlib_toggles.txt";
-	FILE* f = fopen(path.c_str(), "r");
-	if (!f)
-		return;                     // no file -> keep defaults (ship behavior)
-	ExToggles t;                    // start from defaults so a removed line reverts to ON
-	char line[256];
-	while (fgets(line, sizeof(line), f)) {
-		if (line[0] == '#' || line[0] == ';')
-			continue;
-		char key[128]; int val = 1;
-		if (sscanf(line, " %127[^= \t] = %d", key, &val) == 2) {
-			std::string k(key);
-			bool b = (val != 0);
-			if      (k == "gil_guard")    t.gil_guard    = b;
-			else if (k == "app_python")   t.app_python   = b;
-			else if (k == "app_autohunt") t.app_autohunt = b;
-			else if (k == "app_reentry")  t.app_reentry  = b;
-			else if (k == "packet_gil")   t.packet_gil   = b;
-			else if (k == "checkpacket")  t.checkpacket  = b;
-			else if (k == "recover_getattr") t.recover_getattr = b;
-		}
-	}
-	fclose(f);
-	g_tg = t;   // silent apply; the file is an optional override, defaults ship ON. No debug log written.
-}
-// ===============================================================================================
-
-
 // Call a no-arg method on OpenBot.Modules.AutoHunting.instance. The client drops the python
 // ScriptWindow.OnUpdate pump on world reload (teleport), so we drive the bot's Frame from this
 // process-loop hook instead (it always runs). Read the module straight from sys.modules (borrowed) --
@@ -178,36 +120,31 @@ bool CApp::__AppProcess(ClassPointer p) {
 	if (!passed) {
 		passed = true;
 		initMainThread();
-		DEBUG_INFO_LEVEL_1("Main Objects loaded!");
+		LOG_INFO("Process hook fired, python modules imported");
 	}
 
-	// walker build: packet hooks are off, so the client's phase machinery never reaches uBot.
-	// isInGame() reads the real client map name, so it correctly flips false during a teleport/map
-	// load and true again once the new map is ready. We use that edge to (1) run script.py once on
-	// first entry, and (2) on EVERY subsequent world re-entry, reload the collision map for the new
-	// map and replay the game-phase event to python -- otherwise CURRENT_PHASE stays stale, the
-	// bots' Frame pump never resumes, and the walker keeps the previous map's collision. This is the
-	// process-loop hook (runs every frame regardless of UI state), the only place that can recover it.
-	// ---------------------------------------------------------------------------------------------------
-	// GIL GUARD -- fixes the world-reload heap/GC corruption crash.
-	// Everything below touches the Python C-API (currentMapName -> CallMethodRetStr, executePythonFile,
-	// forceGamePhase/reloadGamePhase, PyImport_*, PyObject_GetAttrString, CallMethod, Py_DECREF). This is the
-	// client's PROCESS-LOOP hook: it runs on the game thread, which does NOT hold the GIL, while uBot runs
-	// background Python threads (OpenThreads: thread.start_new_thread x3). Unguarded C-API calls from here
-	// race those threads on refcounts -> an object gets freed while still linked in a GC generation ->
-	// corrupted gc_next -> the crash in update_refs (python27+0x31B16) on the next collection, which a world
-	// reload reliably triggers. The packet path (NetworkStream.cpp:323) was already guarded; this was not.
-	// PyGILState_Ensure is recursive-safe, so it's fine even if we're already called with the GIL held.
-	// ---------------------------------------------------------------------------------------------------
-	if (++g_tgPoll >= TOGGLE_POLL) { g_tgPoll = 0; reloadToggles(); }   // live bisect, no restart
-
-	if (!Py_IsInitialized() || !g_tg.app_python) {
+	if (!Py_IsInitialized()) {
+		static bool loggedGate = false;
+		if (!loggedGate) {
+			loggedGate = true;
+			LOG_ERROR("Python is not initialized -- script.py will never run");
+		}
+		// This IS the client's own process hook, so the client's frame and the comms pump still have
+		// to run when we can do nothing else: returning without callProcess freezes the game.
 		CCommunication& c0 = CCommunication::Instance();
 		c0.Process();
 		return memory.callProcess(p);
 	}
-	PyGILState_STATE __gil;
-	if (g_tg.gil_guard) __gil = PyGILState_Ensure();
+
+	// GIL GUARD -- fixes the world-reload heap/GC corruption crash. Everything below touches the Python
+	// C-API, and this is the client's PROCESS-LOOP hook: it runs on the game thread, which does NOT hold
+	// the GIL, while uBot runs background Python threads (OpenThreads: thread.start_new_thread x3).
+	// Unguarded C-API calls from here race those threads on refcounts -> an object gets freed while still
+	// linked in a GC generation -> corrupted gc_next -> the crash in update_refs (python27+0x31B16) on the
+	// next collection, which a world reload reliably triggers. The packet path (CNetworkStream::
+	// __CheckPacket) is guarded the same way. PyGILState_Ensure is recursive-safe, so this is fine even if
+	// we are already called with the GIL held.
+	PyGILState_STATE __gil = PyGILState_Ensure();
 
 	pinGameWindow();   // ROOT fix: keep the borrowed m_apoPhaseWnd[GAME] window alive (see note above)
 
@@ -215,23 +152,32 @@ bool CApp::__AppProcess(ClassPointer p) {
 	std::string curMap = bck.currentMapName();   // "" when not in the game world
 	bool inGame = !curMap.empty();
 
-	if (!mainScriptExec && passed) {
+	// The packet hooks are off, so the client's phase machinery never reaches uBot. The client's own map
+	// name is the substitute edge: empty during a teleport/map load, non-empty again once the new map is
+	// ready. We use it to run script.py once on first entry, and on EVERY subsequent world re-entry to
+	// reload collision for the new map and replay the game-phase event to python -- otherwise
+	// CURRENT_PHASE stays stale, the bots' Frame pump never resumes, and the walker keeps the previous
+	// map's collision. This process-loop hook runs every frame regardless of UI state, which is what
+	// makes it the only place that can recover any of it.
+	if (!mainScriptExec) {
 		if (inGame) {
 			CNetworkStream& net = CNetworkStream::Instance();
 			net.forceGamePhase();
 			mainScriptExec = true;
-			wasInGame = true;
-			lastMap = curMap;
-			executePythonFile("init.py");   // merged loader lives in init.py (phase-guarded); was script.py
+			// script.py, NOT init.py: init.py is the bootstrap (sys.path + module aliases), already
+			// run at module-init from PythonModule.cpp. script.py builds the hackbar and imports the
+			// bot -- running init.py here loads nothing and reports no error.
+			LOG_INFO("In-game on map '%s', running script.py", curMap.c_str());
+			if (!executePythonFile("script.py"))
+				LOG_ERROR("script.py failed (see syserr)");
 			pinAllModules();                // immortalize every loaded module (see note above)
 		}
 	}
-	else if (g_tg.app_reentry && mainScriptExec && inGame && (!wasInGame || curMap != lastMap)) {
-		// World re-entry: a portal warp changes the map name WITHOUT an empty gap (so the isInGame
+	else if (mainScriptExec && inGame && (!wasInGame || curMap != lastMap)) {
+		// World re-entry: a portal warp changes the map name WITHOUT an empty gap (so the in-game
 		// edge alone misses it -> we also fire on any map-name change), while a channel switch drops
-		// out of game first (caught by the !wasInGame edge). Reload collision for the new map and
-		// replay PHASE_GAME to python (refresh Hooks.CURRENT_PHASE + re-fire callbacks) so the bots'
-		// Frame pump resumes -- this is the only per-frame hook that survives a world reload.
+		// out of game first (caught by the !wasInGame edge). Replaying PHASE_GAME refreshes
+		// Hooks.CURRENT_PHASE and re-fires the callbacks, which is what resumes the bots' Frame pump.
 		CNetworkStream& net = CNetworkStream::Instance();
 		net.reloadGamePhase();
 		PyObject* hooks = PyImport_ImportModule("Hooks");
@@ -250,10 +196,10 @@ bool CApp::__AppProcess(ClassPointer p) {
 	// ~1min after a world reload). NOT gated on inGame here -- the client map name can lag on landing,
 	// and OnUpdate self-throttles, gates on State(STOPPED), and Frame's own _inGame() guard bails when
 	// not in the world. Harmless double-drive when the client pump is also alive (throttle dedups).
-	if (g_tg.app_autohunt && mainScriptExec)
+	if (mainScriptExec)
 		callAutoHunting("OnUpdate");
 
-	if (g_tg.gil_guard) PyGILState_Release(__gil);   // end GIL-guarded region (see note above)
+	PyGILState_Release(__gil);   // end GIL-guarded region (see note above)
 
 	CCommunication& c = CCommunication::Instance();
 	c.Process();
@@ -264,13 +210,6 @@ bool CApp::__AppProcess(ClassPointer p) {
 void CApp::init() {
 #ifdef _DEBUG
 	SetupConsole();
-	setDebugStreamFiles();
-	DEBUG_INFO_LEVEL_1("Dll Loaded From %s", getDllPath());
-#endif
-
-#ifdef _DEBUG_FILE
-	setDebugStreamFiles();
-	SetupDebugFile();
 #endif
 	static CBackground bck = CBackground();
 	static CCommunication coms; //Weird compile error with constructor
@@ -279,30 +218,12 @@ void CApp::init() {
 	static CNetworkStream ns = CNetworkStream();
 	static CMemory memory = CMemory();
 
-	DEBUG_INFO_LEVEL_1("Loaded Objects");
+	memory.setupPatterns(hDll);   // CAddressLoader logs the resolved/total count and every dead sig
 
-#ifdef GET_ADDRESS_FROM_SERVER
-	if (!coms.MainServerSetAuthKey()) {
-		MessageBoxA(NULL, "Error while connecting to the server.", "Authentication error", MB_OK);
-		return;
-	}
-	DEBUG_INFO_LEVEL_1("Authentication was sucessfull");
-#endif
-
-	memory.setupPatterns(hDll);
-#ifdef _DEBUG
-	system("pause");
-#else
-	//Sleep(1000);
-#endif
-
-	DEBUG_INFO_LEVEL_1("Patterns have been set sucessfully");
-	if (memory.setupProcessHook()) {
-		DEBUG_INFO_LEVEL_1("Process Hook sucessfull");
-	}
-	else {
-		DEBUG_INFO_LEVEL_1("Error on process hook");
-	}
+	if (memory.setupProcessHook())
+		LOG_INFO("Process hook installed, waiting for the first frame");
+	else
+		LOG_ERROR("Failed to install the process hook -- nothing further will run");
 }
 
 void CApp::initMainThread() {
@@ -327,15 +248,6 @@ void CApp::SetupConsole()
 
 }
 
-void CApp::SetupDebugFile()
-{
-	std::string log_path(getDllPath());
-	log_path += "ex_log.txt";
-	freopen(log_path.c_str(), "wb", stdout);
-	freopen(log_path.c_str(), "wb", stderr);
-}
-
-
 void CApp::initPythonModules() {
 	CBackground& bck = CBackground::Instance();
 	CInstanceManager& mgr = CInstanceManager::Instance();
@@ -349,22 +261,16 @@ void CApp::initPythonModules() {
 }
 
 void CApp::exit() {
-	DEBUG_INFO_LEVEL_1("LEAVING!");
-	/*CMemory& memory = CMemory::Instance();
-	CBackground& bck = CBackground::Instance();
-	CInstanceManager& mgr = CInstanceManager::Instance();
-	CPlayer& pl = CPlayer::Instance();
-	CNetworkStream& ns = CNetworkStream::Instance();
-	memory.~CMemory();
-	bck.~CBackground();
-	mgr.~CInstanceManager();
-	pl.~CPlayer();
-	ns.~CNetworkStream();*/
-
+	LOG_INFO("Shutting down");
+	// Only tear down the console WE allocated -- in Release there is none, and closing the client's
+	// own stdin/stdout/stderr breaks it. exit() is reachable mid-run from initModule's error path,
+	// not just at teardown, so this has to be safe to hit while the client keeps running.
+#ifdef _DEBUG
 	fclose(stdin);
 	fclose(stdout);
 	fclose(stderr);
 	FreeConsole();
+#endif
 }
 
 void CApp::setSkipRenderer()

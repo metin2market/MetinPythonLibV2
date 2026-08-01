@@ -1,4 +1,4 @@
-# MetinPythonLib V0.3.1
+# MetinPythonLib v1.1
 
 Adds some functions to the python API, and try to inject a script.py from the current directory. 
 
@@ -14,10 +14,10 @@ Adds some functions to the python API, and try to inject a script.py from the cu
 
 
 ## Python Exports
-- Module net_packet
+- Module eXLib
   - Get(\<string\> filePath) returns \<bytearray\><br>
     Similar to old app.Get, allows to extract any file encrypted.
-    
+
   - IsPositionBlocked(\<int\>x,\<int\>y) returns \<boolean\><br>
     Allows to check if a map position is walkable(mobs don't count), true if is walkable or false if is not walkable.<br>
     Note: For better pathfinding, unblocked points that are close(1 unit) to a blocked point, are considered blocked too.<br>
@@ -26,7 +26,7 @@ Adds some functions to the python API, and try to inject a script.py from the cu
   - FindPath(\<int\>x_start,\<int\>y_start,\<int\>x_end,\<int\>y_end) returns \<tuple\>(x,y)<br>
     Finds a path between 2 points. <br>
     The path will not contain the current point.<br>
-    It's possible to edit the maps, by changing the files in Resources/Maps, 0 represents a blocked location and the 1 represents a walkable position. The module will generate a new map if the same does not exist.<br>
+    It's possible to edit the maps, by changing the files in _resources/Maps, 0 represents a blocked location and the 1 represents a walkable position. The module will generate a new map if the same does not exist.<br>
     
   - SendPacket(\<int\>size,\<bytearray\>buffer) return None<br>
     Sends a packet to the server bypassing any encryption set.<br>
@@ -149,29 +149,6 @@ Adds some functions to the python API, and try to inject a script.py from the cu
 
 
 
-### Remote Communication
-Communication with the outside world.
-All functions are asynchronous.
-
- - GetRequest(\<string\> url,\<callable_function\>callback) returns \<int\><br>
-   Sends a async GET request to the specified url.
-   The callback is called when the response arrives from the server, it will be called with 2 arguments, the ID of the request and a string message respectively.
-   If the request is successful it returns an ID of the request otherwise returns -1.
-
-
- - OpenWebsocket(\<string\> url,\<callable_function\>callback) returns \<int\><br>
-   Opens a websocket to the specified url.
-   The callback is responsible for handling the receive messages. It will be called every time a message is received, with 2 arguments, the ID of the socket and a string containing the message respectively .
-   If the request is schedule successfully it returns an ID of the socket otherwise returns -1.
-   
- - SendWebsocket(\<int\> id,\<string\>message) returns \<int\><br>
-   Sends a message to the socket with the specified id.
-   If the message is schedule successfully it returns 1 otherwise returns 0.
-
- - CloseWebsocket(\<int\> id) returns \<int\><br>
-   Closes a socket with the specified id.
-   If the message is schedule successfully it returns 1 otherwise returns 0.
-
 ### Pickup Filter
 A filter o be applied when calling GetCloseItemGround, by default the filter is set to pick items not present in filter.
 
@@ -237,6 +214,8 @@ These simulates the functions that were removed from the modules by Gameforge.
 
 
 ### This are relative to a Packet Filter for debug purposes
+**Debug builds only** — `PythonModule.cpp` wraps all thirteen in `#ifdef _DEBUG`, so none of them
+exist in the shipped Release `eXLib.mix`.
 By default every packet will be shown.
 
   - LaunchPacketFilter()<br>
@@ -279,17 +258,32 @@ By default every packet will be shown.
     Changes filter mode for incoming packets, if set to 1, it will shows all packets that  correspond to the filter, if set to 0 it will show all packets that are not within the filter
 
 
+## Logging
+
+The lib logs to `<gamedir>\_logs\exlib-<date>_<time>.txt` — one file per injection, in the same
+directory as the bot's own python logs. **Always on, Release included**: a silent lib makes "never
+injected" and "injected and failed" indistinguishable.
+
+Five levels, `LOG_ERROR` / `LOG_WARN` / `LOG_INFO` / `LOG_DEBUG` / `LOG_TRACE` (`common/Log.h`).
+**All five are always written** — there is no filter and no runtime switch, so the level is a tag you
+grep on after the fact rather than a gate. `TRACE` is per-packet / per-frame, so expect the file to
+grow quickly on a long session.
+
+Hosts that allocate their own console (the pattern scanner, the packet sniffer) also get every line
+on stdout; an injected session with no console just writes the file.
+
+A crash also writes `<gamedir>\exlib_crash.txt` (fault context, candidate PyObjects, stack return
+addresses) from a vectored exception handler that logs and never swallows the fault. Capped at the
+first 5 reports, so a fault in a per-frame path cannot rewrite the file forever.
+
 ## Compiling Notes
 
 Run **`build.ps1`** from this folder (see [Rebuild](#rebuild) below). It needs **32-bit** Python 2.7 at
 `C:\Python27` (the client is 32-bit, so the DLL and the Python it links against must be too) and
 **VS 2022 Build Tools** with the C++ workload.
 
-The vcpkg deps the *old* build required (cpprestsdk, curl, jsoncpp, websocketpp, boost — all
-`:x86-windows-static`) are **no longer needed**: the server-comms layer is stubbed in the current
-`USE_BUILTIN_PATTERNS` build, so nothing links them. Kept here only as history.
-
-The project also uses [SimpleIni](https://github.com/brofield/simpleini) to parse the .ini config and [Date](https://github.com/HowardHinnant/date) to format dates.
+There are no vcpkg dependencies: the only non-system link inputs are Detours and AAPathPlaning from
+`External/`, plus the Python 2.7 SDK.
 
 # Updates
 v1.1:
@@ -315,7 +309,7 @@ An outdated Metin2 [`client-source`](https://github.com/ikevin127/metin2-client-
 - **32-bit** Python 2.7 SDK at `C:\Python27`
 - Detours + AAPathPlaning from `External/`
 
-The server-comms code (libcurl / websocketpp / jsoncpp) was stripped to stubs since those deps aren't present and `USE_BUILTIN_PATTERNS` mode never calls them at runtime.
+There is no server-comms layer: `Communication.h` is a header-only stub, and offsets come from the AOB patterns compiled into the lib rather than from a server or an address file.
 
 ## RE Techniques
 
@@ -333,16 +327,16 @@ The DLL crashed on load — `getRelativeCallAddress(NULL)` on the dead `PEEK`, a
 
 ## Phase 1 — Changes made (walker + pathfinding)
 
-- **`OFFSET_CLIENT_CHARACTER_POS` = `0x7BC`** (`defines.h`). Source had `0x7C4` (garbage now); an interim `0x200` was wrong — that's a field on a separate PC-wrapper object, *not* the `CInstanceBase` instances returned by `GetInstancePtr`. The map instances (NPCs **and** the main char, vtbl `0x2D92A54`) store live `{x, y, z}` at `+0x7BC`; `y` is stored negated (existing `pos->y = -iPos->y` is correct).
+- **`OFFSET_CLIENT_CHARACTER_POS` = `0x7C4`** (`defines.h`). It is a field on the `CInstanceBase` instances returned by `GetInstancePtr`, *not* on the separate PC-wrapper object. The map instances (NPCs **and** the main char) store live `{x, y, z}` at `+0x7C4`; `y` is stored negated (`pos->y = -iPos->y` is correct). Re-derive by disassembling `playerGetMainCharacterPosition` and following its getter chain.
 - **Re-derived signatures** (`common/Offsets.h`):
   - `INSTANCEBASE_MOVETODEST` — `CInstanceBase::MoveToDestPosition`, `/GS` prologue.
   - `PYTHONAPP_PROCESS` — `App::Process`, the per-frame heartbeat that registers the `eXLib` module and runs the scripts; without it nothing initializes.
   - `PEEK_FUNCTION` — `CNetworkStream::Peek`, now a direct-prologue signature (offset 0) instead of the dead relative-call form; the `peekFunc = getRelativeCallAddress(...)` line in `Memory.cpp` was removed.
-- **Robustness** (`common/utils.h`, `DetoursHook.h`, `Memory.h`): NULL-guard `getRelativeCallAddress`; skip `HookFunction` when the target is NULL; NULL-guard every `call*` wrapper — so a still-dead signature no-ops instead of calling NULL.
+- **Robustness** (`common/utils.h`, `DetoursHook.h`, `Memory.h`): NULL-guard `getRelativeCallAddress`; skip `HookFunction` when the target is NULL; every `call*` wrapper checks its function pointer, plus the pattern-derived singleton it passes as `this` — so a still-dead signature degrades that one feature instead of calling NULL. The two `CheckAdv` wrappers degrade to `true` (= collision) rather than a no-op, so a dead signature blocks movement instead of ignoring walls.
 - **`setupHooks()`** (`Memory.cpp`): packet hooks left **uninstalled** (they crashed on the GF packet layer and aren't needed for the walker — `GetPixelPosition` reads memory directly, `MoveToDestPosition` is invoked via the resolved address, `FindPath` is file-based). Only the process-hook heartbeat stays. The **`CheckPacket` hook was later re-enabled** to drive `InstancesList`, using the real `this` the game passes (`CHECK_PACKET`'s first of two hits is the real `CPythonNetworkStream::CheckPacket`); `Peek` reads packet bodies.
 - **Stripped server-comms**: `Communication.h` → header-only stub; dropped `Communication.cpp` / `WebsocketHandler.cpp` from the build; removed the `VMProtectSDK.h` include (it force-linked a missing lib); `Patterns.cpp` set to not use the PCH.
 
-Result: a clean 32-bit `eXLib.dll` (imports only `python27.dll` + system DLLs, static CRT), deployed to `../uBot-WalkerPath/eXLib.mix`.
+Result: a clean 32-bit `eXLib.dll` (imports only `python27.dll` + system DLLs, static CRT), deployed into the game dir as `eXLib.mix`.
 
 ### Rebuild
 
@@ -352,24 +346,18 @@ Run the script from this folder:
 .\build.ps1
 ```
 
-It produces `build\eXLib.dll` (rename/copy to `eXLib.mix` for the bot).
+It produces `build\eXLib.dll` (rename/copy to `eXLib.mix` for the bot), alongside `eXLib.pdb` and a
+`BUILDINFO.txt` recording which toolchain and SDK produced it — hash a deployed `eXLib.mix` against
+that to identify its build.
 
-**Building on VS 2022 / v143** (the original build used VS 2019 / v142) needed three adjustments,
-all baked into `build.ps1`:
+**Building on VS 2022 / v143** (the original build used VS 2019 / v142) needs two adjustments,
+both baked into `build.ps1`:
 - `/p:PlatformToolset=v143` — we have the 2022 toolset, not v142. Harmless: the RE offsets describe the *game's* code, not ours.
 - `/p:WholeProgramOptimization=false` — lets the v143 linker consume the v142-built `External\AAPathPlaning.lib` without a `C1047` compiler-version mismatch.
-- `common/SimpleIni.h` was patched to drop `std::binary_function` (removed from the modern MSVC STL).
 
-Raw command the script wraps:
-
-```
-MSBuild MetinPythonLib\MetinPythonLib.vcxproj /p:Configuration=Release /p:Platform=Win32 \
-  /p:SolutionDir=<this folder>\ /p:OutDir=<this folder>\build\ \
-  /p:PlatformToolset=v143 /p:WholeProgramOptimization=false \
-  /p:WindowsTargetPlatformVersion=10.0.26100.0
-```
-
-Output: `build\eXLib.dll` (rename/copy to `eXLib.mix` for the bot).
+Invoke the script rather than MSBuild directly: it discovers the newest installed Windows SDK and
+passes the rebuild/verbosity flags. The exact command line and the reasoning for each flag are
+commented at the top of `build.ps1`.
 
 ### Phase 1 Follow-Up — Teleport Crash Fix (GIL Hardening)
 

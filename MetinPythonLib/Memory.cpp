@@ -94,25 +94,6 @@ bool __fastcall __CheckPacket(ClassPointer classPointer, DWORD EDX, BYTE * heade
 	return instance.__CheckPacket(header);
 }
 
-void __Tracef(const char* c_szFormat, ...) {
-	va_list args;
-	va_start(args, c_szFormat);
-	Tracef(1, c_szFormat, args);
-	CMemory & instance = CMemory::Instance();
-	instance.traceFHook->originalFunction(c_szFormat, args);
-	va_end(args);
-}
-
-void __Tracenf(const char* c_szFormat, ...) {
-	va_list args;
-	va_start(args, c_szFormat);
-	Tracef(0, c_szFormat, args);
-	CMemory & memory = CMemory::Instance();
-
-	memory.tracenFHook->originalFunction(c_szFormat, args);
-	va_end(args);
-}
-
 CMemory::CMemory()
 {
 	networkStream = 0;
@@ -120,12 +101,6 @@ CMemory::CMemory()
 
 CMemory::~CMemory()
 {
-
-#ifdef _DEBUG
-	delete traceFHook;
-	delete tracenFHook;
-#endif // _DEBUG
-
 	delete checkPacketHook;
 	delete backgroundCheckAdvHook;
 	delete instanceBaseCheckAdvHook;
@@ -145,11 +120,8 @@ bool CMemory::setupPatterns(HMODULE hDll)
 {
 	this->hDll = hDll;
 	CAddressLoader addrLoader;
-	bool value = addrLoader.setAddress(hDll);
-	if (!value) {
-		DEBUG_INFO_LEVEL_1("Error Setting Addresses");
-		return value;
-	}
+	if (!addrLoader.setAddress(hDll))
+		return false;
 
 	recvAddr = addrLoader.GetAddress(RECV_FUNCTION);//patternFinder->GetPatternAddress(&memory_patterns::recvFunction);
 	sendAddr = addrLoader.GetAddress(SEND_FUNCTION);
@@ -162,8 +134,6 @@ bool CMemory::setupPatterns(HMODULE hDll)
 	moveToDestAddr = addrLoader.GetAddress(INSTANCEBASE_MOVETODEST);
 	backgroundCheckAdvancingAddr = addrLoader.GetAddress(BACKGROUND_CHECKADVANCING);
 	instanceCheckAdvancingAddr = addrLoader.GetAddress(INSTANCE_CHECKADVANCING);
-	traceFFuncAddr = addrLoader.GetAddress(TRACEF_POINTER);
-	tracenFFuncAddr = addrLoader.GetAddress(TRACENF_POINTER);
 	moveToDirectionAddr = addrLoader.GetAddress(MOVETODIRECTION_FUNCTION);
 	processAddr = addrLoader.GetAddress(PYTHONAPP_PROCESS);
 	checkPacketAddr = addrLoader.GetAddress(CHECK_PACKET_FUNCTION);
@@ -193,39 +163,44 @@ bool CMemory::setupPatterns(HMODULE hDll)
 	// (Verified live via CE: exeBase+0x2DC1760 -> valid singleton whose m_EventSetVector has 6 slots.)
 	eventMgrStatic = (DWORD*)((DWORD)GetModuleHandle(NULL) + 0x02DC1760);
 
-	//peekFunc = (tPeek)getRelativeCallAddress((void*)peekFunc); // walker build: PEEK_FUNCTION is now a direct function sig (offset 0), not a call site
+	// getRelativeCallAddress only for sigs that match a CALL site; PEEK_FUNCTION matches the callee
+	// itself (offset 0), so it is deliberately absent here.
 	globalToLocalFunc = (tGlobalToLocalPosition)getRelativeCallAddress((void*)globalToLocalFunc);
 	recvAddr = getRelativeCallAddress(recvAddr);
 
-	DEBUG_INFO_LEVEL_1("Peek relative final address: %#x", peekFunc);
-	DEBUG_INFO_LEVEL_1("globalToLocal relative final address: %#x", globalToLocalFunc);
-	DEBUG_INFO_LEVEL_1("recv relative final address: %#x", recvAddr);
+	LOG_DEBUG("Peek relative final address: %#x", peekFunc);
+	LOG_DEBUG("globalToLocal relative final address: %#x", globalToLocalFunc);
+	LOG_DEBUG("recv relative final address: %#x", recvAddr);
 
 	pythonNetwork = SetClassPointer((DWORD**)netClassPointer);
 	pythonPlayer = SetClassPointer((DWORD**)pythonPlayerPointer);
 	pythonChrMgr = SetClassPointer((DWORD**)chrMgrClassPointer);
 
-	DEBUG_INFO_LEVEL_1("pythonNetwork->%#x", pythonNetwork);
-	DEBUG_INFO_LEVEL_1("pythonPlayer->%#x", pythonPlayer);
-	DEBUG_INFO_LEVEL_1("pythonChrMgr->%#x", pythonChrMgr);
+	LOG_DEBUG("pythonNetwork->%#x", pythonNetwork);
+	LOG_DEBUG("pythonPlayer->%#x", pythonPlayer);
+	LOG_DEBUG("pythonChrMgr->%#x", pythonChrMgr);
 
-	getInstanceClassPtr = (ClassPointer)((DWORD)*pythonChrMgr + OFFSET_CLIENT_INSTANCE_PTR_1);
-
-	getInstanceFunc = reinterpret_cast<tGetInstancePointer>(*(DWORD*)(*(DWORD*)getInstanceClassPtr + OFFSET_CLIENT_INSTANCE_PTR_2));
+	// Two chained dereferences off the character manager. A dead CHRACTERMANAGER_POINTER (or a
+	// singleton the client hasn't constructed yet) would make this read address 0 and kill the client
+	// at injection -- which is the one thing the store-0 design exists to survive.
+	if (pythonChrMgr && *pythonChrMgr) {
+		getInstanceClassPtr = (ClassPointer)((DWORD)*pythonChrMgr + OFFSET_CLIENT_INSTANCE_PTR_1);
+		getInstanceFunc = reinterpret_cast<tGetInstancePointer>(*(DWORD*)(*(DWORD*)getInstanceClassPtr + OFFSET_CLIENT_INSTANCE_PTR_2));
+	}
+	else {
+		getInstanceClassPtr = 0;
+		getInstanceFunc = 0;
+		LOG_ERROR("CHRACTERMANAGER_POINTER is dead -- instance lookup is off (positions, ground items, race filter)");
+	}
 	return true;
 }
 
-// Number of selectable options in the CURRENTLY-OPEN NPC dialog. Walks the CPythonEventManager singleton's
-// m_EventSetVector (@ mgr+0x0C: begin@+0x00, end@+0x04) and returns the MAX TEventSet.nAnswer (@ es+0x1B0)
-// across all live event sets -- the interactive menu has answers>0 while quest/info scrolls are 0, so the
-// max auto-selects the menu. Verified live: a 2-option "Open Shop / Close" menu reads 2. SEH-guarded so a
-// bad/absent struct returns -1 instead of crashing. (POD-only body -> __try is legal here.)
-int CMemory::GetDialogAnswerCount()
+// Split out of GetDialogAnswerCount so its early returns cannot skip the expected-fault bracket at the
+// call site. (POD-only body -> __try is legal here.)
+static int exScanDialogAnswers(DWORD* mgrStatic)
 {
-	if (!eventMgrStatic)
-		return -1;
 	__try {
-		DWORD mgr = *eventMgrStatic;                 // singleton `this`
+		DWORD mgr = *mgrStatic;                      // singleton `this`
 		if (!mgr)
 			return 0;
 		DWORD* begin = *(DWORD**)(mgr + 0x0C);       // m_EventSetVector.begin
@@ -248,6 +223,23 @@ int CMemory::GetDialogAnswerCount()
 	}
 }
 
+// Number of selectable options in the CURRENTLY-OPEN NPC dialog. Walks the CPythonEventManager singleton's
+// m_EventSetVector (@ mgr+0x0C: begin@+0x00, end@+0x04) and returns the MAX TEventSet.nAnswer (@ es+0x1B0)
+// across all live event sets -- the interactive menu has answers>0 while quest/info scrolls are 0, so the
+// max auto-selects the menu. Verified live: a 2-option "Open Shop / Close" menu reads 2. SEH-guarded so a
+// bad/absent struct returns -1 instead of crashing.
+int CMemory::GetDialogAnswerCount()
+{
+	if (!eventMgrStatic)
+		return -1;
+	// A fault in the walk is the expected outcome for a stale offset and the __except is its handler,
+	// so keep the first-chance crash logger out of it (see g_exExpectedFault in App.h).
+	exExpectedFaultEnter();
+	int n = exScanDialogAnswers(eventMgrStatic);
+	exExpectedFaultLeave();
+	return n;
+}
+
 bool CMemory::setupHooks()
 {
 	//Hooks
@@ -263,28 +255,19 @@ bool CMemory::setupHooks()
 	checkPacketHook = new DetoursHook<tCheckPacket>((tCheckPacket)checkPacketAddr, __CheckPacket);
 	sendAttackPacketHook = new DetoursHook<tSendAttackPacket>((tSendAttackPacket)sendAttackPacketAddr, __SendAttackPacket);
 
-	traceFHook = new DetoursHook<tTracef>((tTracef)traceFFuncAddr, __Tracef);
-	tracenFHook = new DetoursHook<tTracef>((tTracef)tracenFFuncAddr, __Tracenf);
-
 	BYTE patch[] = { 0x90,0x90,0x0,0x0,0x0,0x0,0x0,0x0,0x1 }; //Patch for skip graphics
-	graphicPatch = new CMemoryPatch(patch, "xx??????x", 9, skipGraphicsAddr);
-#ifdef _DEBUG
-	traceFHook->HookFunction();
-	tracenFHook->HookFunction();
-#endif // DEBUG
-#ifdef _DEBUG_FILE
+	// The only resolved address in this file that gets DEREFERENCED rather than just stored: the
+	// CMemoryPatch ctor memcpy's 9 bytes out of `location` to keep the originals, so a dead
+	// RENDER_MID_FUNCTION (stored as 0, by design) would fault here on the first frame.
+	graphicPatch = skipGraphicsAddr ? new CMemoryPatch(patch, "xx??????x", 9, skipGraphicsAddr) : 0;
+	if (!graphicPatch)
+		LOG_ERROR("RENDER_MID_FUNCTION is dead -- SkipRenderer is off");
 
-	traceFHook->HookFunction();
-	tracenFHook->HookFunction();
-#endif
-
-	// ---- walker build: DO NOT install the game hooks ----
-	// The packet hooks (recv/checkPacket/send/...) crash on the current GF client's packet
-	// layer (CHECK_PACKET sig ambiguous, RECV/PEEK unreliable, packet structs stale) and are
-	// not needed for the walker: GetPixelPosition reads memory directly, MoveToDestPosition is
-	// invoked via the resolved address directly, FindPath is file-based. Leaving them
-	// uninstalled lets the game's own functions run untouched. Only processHook (installed in
-	// setupProcessHook) stays active as the init/script heartbeat.
+	// ---- walker build: every hook below checkPacket stays UNINSTALLED ----
+	// recv/send/peek crash on the current GF client's packet layer (sigs ambiguous, packet structs
+	// stale), and the walker needs none of them: GetPixelPosition reads memory directly,
+	// MoveToDestPosition is invoked through the resolved address, FindPath is file-based. Left
+	// commented rather than deleted -- re-enabling one is the first step of any packet work.
 	//getEtherPacketHook->HookFunction();
 	//recvHook->HookFunction();
 	//sendHook->HookFunction();
@@ -294,7 +277,10 @@ bool CMemory::setupHooks()
 	//sendStateHook->HookFunction();
 	//setMoveToDestPositionHook->HookFunction();
 	//setMoveToDirectionHook->HookFunction();
-	checkPacketHook->HookFunction(); // walker build PHASE 1: re-enabled to drive InstancesList (recv/send stay off)
+	// The one hook this function installs. Besides feeding InstancesList it is what captures the live
+	// CPythonNetworkStream `this` (setNetworkStream in __CheckPacket), which pinGameWindow and the
+	// combat leaf senders read -- turning it off silently disables those too.
+	checkPacketHook->HookFunction();
 	//sendAttackPacketHook->HookFunction();
 	return true;
 }
@@ -305,12 +291,16 @@ bool CMemory::setupProcessHook()
 	return processHook->HookFunction();
 }
 
+// Both are reachable from python (eXLib.SkipRenderer), so they have to survive a dead
+// RENDER_MID_FUNCTION leaving graphicPatch NULL.
 void CMemory::setSkipRenderer()
 {
-	graphicPatch->patchMemory();
+	if (graphicPatch)
+		graphicPatch->patchMemory();
 }
 
 void CMemory::unsetSkipRenderer()
 {
-	graphicPatch->unPatchMemory();
+	if (graphicPatch)
+		graphicPatch->unPatchMemory();
 }

@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "ReturnHook.h"
+#include "../common/Log.h"
 
 
 bool ReturnHook::HookFunction()
@@ -34,7 +35,7 @@ ReturnHook::ReturnHook(void * addressToHook, void * redirection, BYTE size, int 
 	stackReplaceFunction = generateStackReplaceFunction();
 	oldCode = malloc(size);
 	if (!oldCode) {
-		MessageBox(NULL, "Critical error alocating memory for Return Hook", "CRITICAL ERROR", MB_OK);
+		LOG_ERROR("ReturnHook: out of memory saving %d original bytes at %p", size, addressToHook);
 		throw new std::exception("Error");
 	}
 	oldCode = memcpy(oldCode, addressToHook, sizeHook);

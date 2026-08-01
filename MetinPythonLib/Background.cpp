@@ -18,7 +18,7 @@ void CBackground::importPython()
 {
 	background_mod = PyImport_ImportModule("background");
 	if (!background_mod) {
-		DEBUG_INFO_LEVEL_1("Error importing background python module");
+		LOG_ERROR("Error importing background python module");
 	}
 }
 
@@ -28,12 +28,10 @@ bool CBackground::setCurrentCollisionMap()
 	// CallMethod* owns all refcounts internally -> no empty-tuple double-free possible (this runs on every
 	// world reload). See PythonUtils.h.
 	if (!CallMethodRetStr(background_mod, "GetCurrentMapName", map_name, "")) {
-#ifdef _DEBUG
-		DEBUG_INFO_LEVEL_1("Error calling GetCurrentMap %s\n", map_name.c_str());
-#endif
+		LOG_DEBUG("GetCurrentMapName failed (normal outside the game world)");
 		return false;
 	}
-	DEBUG_INFO_LEVEL_2("Setting collision map name=%s",map_name.c_str());
+	LOG_DEBUG("Setting collision map name=%s",map_name.c_str());
 	if (currMap) {
 		if (map_name.compare(currMap->getMapName()) == 0)
 			return true;
@@ -125,7 +123,7 @@ bool CBackground::isPathBlocked(int x_start, int y_start, int x_end, int y_end)
 	y_start /= 100;
 	x_end /= 100;
 	y_end /= 100;
-	DEBUG_INFO_LEVEL_4("x_start: %d, y_start: %d | x_end: %d, y_end: %d", x_start, y_start, x_end, y_end);
+	LOG_TRACE("x_start: %d, y_start: %d | x_end: %d, y_end: %d", x_start, y_start, x_end, y_end);
 	CNetworkStream& net = CNetworkStream::Instance();
 	if (net.GetCurrentPhase() == PHASE_GAME) {
 		if (currMap == 0) {
@@ -159,14 +157,9 @@ bool CBackground::isPathBlocked(int x_start, int y_start, int x_end, int y_end)
 			}
 			//Slope undifined
 			else {
-				m = 1;
-#ifdef _DEBUG_FILE
-				int y_min = min(y_end, y_start);
-				int y_max = max(y_end, y_start);
-#else
+				// Parenthesised so the windows.h min/max macros cannot hijack the call.
 				int y_min = (std::min)(y_end, y_start);
 				int y_max = (std::max)(y_end, y_start);
-#endif
 				for (int iy = y_min; iy <= y_max; iy++) {
 					if (currMap->isBlocked(x_start, iy)) {
 						return true;

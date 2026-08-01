@@ -42,10 +42,10 @@
     <ClCompile Include="App.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Communication.cpp">
+    <ClCompile Include="..\common\utils.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\common\utils.cpp">
+    <ClCompile Include="..\common\Log.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="CAddressLoader.cpp">
@@ -67,9 +67,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="PythonModule.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="WebsocketHandler.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="stdafx.cpp">
@@ -125,6 +122,9 @@
     <ClInclude Include="..\common\utils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\common\Log.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="CAddressLoader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -150,9 +150,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PythonModule.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="WebsocketHandler.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="stdafx.h">

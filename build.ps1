@@ -8,7 +8,6 @@
 #   /p:PlatformToolset=v143      -> we have the VS2022 toolset, not v142 (works fine; offsets are the game's, not ours)
 #   /p:WholeProgramOptimization=false -> lets the v143 linker consume the old External\AAPathPlaning.lib
 #                                        (built with v142) without a C1047 compiler-version mismatch
-#   common/SimpleIni.h was patched to drop std::binary_function (removed from the modern MSVC STL)
 #
 # Output: .\build\eXLib.dll  — rename/copy to eXLib.mix to deploy to the bot.
 

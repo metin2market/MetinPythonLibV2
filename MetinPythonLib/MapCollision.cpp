@@ -7,6 +7,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <shlobj.h>   // SHCreateDirectoryExA
 
 #define ATTR_WIDTH 256
 #define ATTR_HEIGHT 256
@@ -15,26 +16,25 @@
 MapCollision::MapCollision(const char* map_name){
 	maxX = 0;
 	maxY = 0;
+	// ~MapCollision frees/deletes all four unconditionally, and the !val path below returns before the
+	// three pathfinding members are ever assigned -- CBackground deletes us on every map change.
+	map = 0;
+	anyAngleMap = 0;
+	aPathPlaning = 0;
+	pathFinding = 0;
 	mapName = std::string(map_name);
-	bool val = false;
-	bool cached = isMapSaved();
-	if (!cached) {
+	// No existence probe first: loadMapFromDisk already fails cleanly on a missing .dat, so probing
+	// only bought a second open of the same file -- on every world re-entry.
+	bool val = loadMapFromDisk();
+	if (!val) {
 		val = constructMapFromClient();
-		if(val)
+		if (val)
 			saveMap();
-	}else {
-		val = loadMapFromDisk();
-		if (!val) {
-			val = constructMapFromClient();
-			if (val)
-				saveMap();
-		}
-
 	}
 	if(val)
-		DEBUG_INFO_LEVEL_1("Current map %s loaded with success! Max-X: %d  Max-Y: %d\n",map_name,maxX,maxY);
+		LOG_INFO("Current map %s loaded with success! Max-X: %d  Max-Y: %d",map_name,maxX,maxY);
 	if (!val) {
-		DEBUG_INFO_LEVEL_1("Error constructing map! Functions that need map information  will not work");
+		LOG_ERROR("Error constructing map! Functions that need map information  will not work");
 		return;
 	}
 
@@ -73,10 +73,10 @@ bool MapCollision::findPath(int x_start, int y_start, int x_end, int y_end, std:
 
 	if  (found) {
 		auto length = aPathPlaning->FindXYLocPath({ (uint16_t)x_start,(uint16_t)y_start }, { (uint16_t)x_end,(uint16_t)y_end }, finalPath);
-		DEBUG_INFO_LEVEL_3("Path found from (%d,%d) to (%d,%d) with %d points!", x_start, y_start, x_end, y_end, finalPath.size());
+		LOG_DEBUG("Path found from (%d,%d) to (%d,%d) with %d points!", x_start, y_start, x_end, y_end, finalPath.size());
 	}
 	else {
-		DEBUG_INFO_LEVEL_2("No Path from (%d,%d) to (%d,%d)!!!", x_start, y_start, x_end, y_end);
+		LOG_DEBUG("No Path from (%d,%d) to (%d,%d)!!!", x_start, y_start, x_end, y_end);
 	}
 
 	if (found) {
@@ -101,21 +101,6 @@ inline unsigned MapCollision::operator()(unsigned x, unsigned y) const
 }
 
 
-
-bool MapCollision::isMapSaved()
-{
-
-	std::string dic(getMapsPath());
-	dic += mapName + std::string(".dat");
-	std::ifstream fin(dic.c_str());
-
-	if (fin.fail())
-	{
-		return false;
-	}
-	fin.close();
-	return true;
-}
 
 bool MapCollision::fileExists(const char * file)
 {
@@ -182,11 +167,11 @@ bool MapCollision::constructMapFromClient()
 		}
 	}
 	if (buffer.size() == 0 || xPieces==0) {
-		DEBUG_INFO_LEVEL_1("No map found with name %s\n", mapName.c_str());
+		LOG_ERROR("No map found with name %s", mapName.c_str());
 		return false;
 	}
 	else {
-		DEBUG_INFO_LEVEL_3("Map %s loaded max_X_Piece:%d max_Y_Piece:%d\n", mapName.c_str(), xPieces,largestYPiece);
+		LOG_DEBUG("Map %s loaded max_X_Piece:%d max_Y_Piece:%d", mapName.c_str(), xPieces,largestYPiece);
 	}
 
 
@@ -200,7 +185,7 @@ bool MapCollision::constructMapFromClient()
 
 	for (auto mapPiece : buffer) {
 		if (!addMapPiece(mapPiece)) {
-			DEBUG_INFO_LEVEL_1("MapPiece exceeds limits %s\n", mapName.c_str());
+			LOG_ERROR("MapPiece exceeds limits %s", mapName.c_str());
 			return false;
 		}
 		for (auto & object : mapPiece->area.vec) {
@@ -343,7 +328,7 @@ bool MapCollision::loadMapFromDisk()
 		}
 		y++;
 	}
-	DEBUG_INFO_LEVEL_1("Map %s in disk loaded from %s with X:%d ,Y:%d loaded with success!", mapName.c_str(), dic.c_str(), maxX, maxY);
+	LOG_INFO("Map %s in disk loaded from %s with X:%d ,Y:%d loaded with success!", mapName.c_str(), dic.c_str(), maxX, maxY);
 	fin.close();
 	return true;
 
@@ -353,21 +338,27 @@ void MapCollision::saveMap()
 {
 	std::string dic(getMapsPath());
 
-	/*if (!CreateDirectory(dic.c_str(), NULL)) {
-		DEBUG_INFO_LEVEL_1("Error Creating Directory %s, GetLastError %d", dic.c_str(),GetLastError());
-		return;
-	}*/
+	// Not system("mkdir ..."): shelling out from the game thread flashes a cmd.exe window on every
+	// save. SHCreateDirectoryExA creates the intermediate dirs, but it wants a fully-qualified path
+	// with no trailing separator (some Windows versions answer ERROR_BAD_PATHNAME to one) and
+	// getMapsPath() ends in one, hence the strip -- and it reports an already-existing dir as an
+	// error code rather than success, hence the two ignored codes.
+	std::string dir(dic);
+	while (!dir.empty() && (dir[dir.size() - 1] == '\\' || dir[dir.size() - 1] == '/'))
+		dir.erase(dir.size() - 1);
 
-	std::string consoleS("mkdir \"");
-	consoleS += dic + "\"";
-	system(consoleS.c_str());
+	int rc = SHCreateDirectoryExA(NULL, dir.c_str(), NULL);
+	if (rc != ERROR_SUCCESS && rc != ERROR_ALREADY_EXISTS && rc != ERROR_FILE_EXISTS) {
+		LOG_ERROR("Could not create map cache dir %s (code %d)", dir.c_str(), rc);
+		return;
+	}
 
 	dic += mapName + std::string(".dat");
 
 	std::ofstream myfile;
 	myfile.open(dic.c_str());
 	if (myfile.fail()) {
-		DEBUG_INFO_LEVEL_1("Couldn't save current map to %s", dic.c_str());
+		LOG_ERROR("Couldn't save current map to %s", dic.c_str());
 		return;
 	}
 
@@ -381,7 +372,7 @@ void MapCollision::saveMap()
 		line[x] = '\n';
 		myfile << line;
 	}
-	DEBUG_INFO_LEVEL_1("Current map saved to %s", dic.c_str());
+	LOG_INFO("Current map saved to %s", dic.c_str());
 	free(line);
 	myfile.close();
 }

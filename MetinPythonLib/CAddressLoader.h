@@ -7,18 +7,12 @@ public:
 	CAddressLoader();
 	~CAddressLoader();
 
+	// False only when the pattern scanner itself failed to construct, so nothing resolved and nothing
+	// will. True says nothing about how many signatures matched -- setAddress logs that count itself.
 	bool setAddress(HMODULE hDll);
 	void* GetAddress(int id);
 
 private:
-	bool setAddressByPatterns(Patterns* p);
-	bool setAddressByFile(const char* path, void* baseDllAddress);
-	bool setAddressByServer( void* baseDllAddress);
-
-	void parseFileBuffer(const char* buffer, int size, void* baseDllAddress);
-
-private:
-	
 	std::map<int, DWORD> memoryAddress;
 };
 

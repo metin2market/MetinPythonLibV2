@@ -8,36 +8,16 @@
 #include <ctime>
 #include <math.h>
 #include <stdarg.h>
-#include <chrono>
 
 
-bool isDebugEnable();
-void setDebugOn();
-void setDebugOff();
+#include "Log.h"
 
-// Collision-map cache dir, relative to the dir holding eXLib.mix. Must stay inside a payload
-// dir this fork's deploy actually ships -- OpenBot\ is on the deploy's legacy-cleanup list and
-// gets deleted, which would strip the shipped .dat and re-derive it from the client every run.
-#define SUBPATH_MAPS "Resources\\Maps\\"
-
-#define ADRESS_FILE_NAME "addresses.csv"
-
-#if defined(_DEBUG) || defined(_DEBUG_FILE)
-#define DEBUG_INFO_LEVEL_1(...); {if(isDebugEnable()){printf("[%s] - ",serializeTimePoint(std::chrono::system_clock::now(),"%H:%M:%S").c_str()); printf(__VA_ARGS__); printf("\n");fflush(stdout);}}
-#define DEBUG_INFO_LEVEL_2(...); {DEBUG_INFO_LEVEL_1(__VA_ARGS__);}
-#define DEBUG_INFO_LEVEL_3(...); {DEBUG_INFO_LEVEL_1(__VA_ARGS__);}
-#define DEBUG_INFO_LEVEL_4(...); {DEBUG_INFO_LEVEL_1(__VA_ARGS__);}
-#define DEBUG_INFO_LEVEL_5(...); {DEBUG_INFO_LEVEL_1(__VA_ARGS__);}
-#else
-#define DEBUG_INFO_LEVEL_1(...); {}
-#define DEBUG_INFO_LEVEL_2(...); {}
-#define DEBUG_INFO_LEVEL_3(...); {}
-#define DEBUG_INFO_LEVEL_4(...); {}
-#define DEBUG_INFO_LEVEL_5(...); {}
-#endif
-
-
-
+// Collision-map cache dir, relative to the dir holding eXLib.mix. Must stay inside a dir the
+// deploy ships as payload -- anything else is on its legacy-cleanup list and gets wiped, which
+// would strip the shipped .dat and force a re-derive from the client on every run. The leading
+// underscore matches _logs\/_reports\: it marks the dir as ours at a glance in a game dir full
+// of the client's own folders.
+#define SUBPATH_MAPS "_resources\\Maps\\"
 
 typedef void (__stdcall *tTimerFunction)();
 typedef std::chrono::time_point<std::chrono::system_clock> tTimePoint;
@@ -46,32 +26,20 @@ struct TPixelPosition {
 	float x, y, z;
 };
 
-std::string base64_encode(unsigned char const* bytes_to_encode, unsigned int in_len);
-std::string base64_decode(std::string const& encoded_string);
-
-std::string decrypt(const std::string& data);
-std::string encrypt(const std::string& data);
 bool getCurrentPathFromModule(HMODULE hMod, char* dllPath, int size);
 void stripFileFromPath(char* dllPath, int size);
 const char* getDllPath();
 const char* getMapsPath();
-
-//Related to server	
-void getJWTToken(std::string* buffer);
-std::string getHWID();
-
-
 void setDllPath(char* file);
-void setDebugStreamFiles();
-void cleanDebugStreamFiles();
 
-void Tracef(bool val, const char* c_szFormat, ...);
-
+// getDllPath() + suffix into out, always NUL-terminated. getDllPath() already ends in a backslash,
+// so suffix starts with the name, not a separator. False means it didn't fit and out holds a
+// truncated path -- callers that only log it can ignore that, callers that open it must not.
+bool buildPath(char* out, size_t n, const char* suffix);
 
 //There are bugs here that migh crash the process
 void setTimerFunction(tTimerFunction func,float sec);
 void executeTimerFunctions();
-std::string serializeTimePoint(const std::chrono::system_clock::time_point& time, const std::string& format);
 
 
 inline void* getRelativeCallAddress(void* startCallAddr) {
@@ -139,9 +107,3 @@ inline bool checkPointBetween(float xStart, float yStart, float xCheckPoint, flo
 
 	return false;
 }
-
-
-
-bool addPathToInterpreter(const char* path);
-
-bool executePythonFile(const char* file);

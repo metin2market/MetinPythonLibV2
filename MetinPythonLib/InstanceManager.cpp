@@ -30,29 +30,36 @@ void CInstanceManager::importPython()
 void CInstanceManager::changeInstancePosition(SRcv_CharacterMovePacket& packet_move)
 {
 	if (instances.find(packet_move.dwVID) == instances.end()) {
-		DEBUG_INFO_LEVEL_3("No instance vid %d found, creating new one", packet_move.dwVID);
+		LOG_DEBUG("No instance vid %d found, creating new one", packet_move.dwVID);
 		SRcv_PlayerCreatePacket player = { 0 };
 		player.dwVID = packet_move.dwVID;
 		player.x = packet_move.lX;
 		player.y = packet_move.lY;
-		appendNewInstance(player);
+		appendNewInstance(player, true);
 		return;
 	}
-	return;
-	DEBUG_INFO_LEVEL_4("VID %d-> X:%d Y:%d", packet_move.dwVID, packet_move.lX, packet_move.lY);
-	auto& instance = instances[packet_move.dwVID];
-	instance.x = packet_move.lX;
-	instance.y = packet_move.lY;
-	//DEBUG_INFO("VID %d-> X:%d Y:%d", packet_move.dwVID, packet_move.lX, packet_move.lY);
+	// Create-on-miss only. SInstance::x/y are never read back -- getCharacterPosition takes the
+	// position live off the client's character struct -- so a move packet for a known instance
+	// carries nothing we keep; it exists purely to notice instances we never saw appear.
 }
 
-void CInstanceManager::appendNewInstance(SRcv_PlayerCreatePacket& player)
+void CInstanceManager::appendNewInstance(SRcv_PlayerCreatePacket& player, bool placeholder)
 {
-	if (instances.find(player.dwVID) != instances.end()) {
-		DEBUG_INFO_LEVEL_4("On adding instance with vid=%d, already exists, ignoring packet", player.dwVID);
-		return;
+	auto existing = instances.find(player.dwVID);
+	if (existing != instances.end()) {
+		// A CHARACTER_MOVE can beat its CHARACTER_ADD (right after a warp, or a stall spawning at the
+		// edge of sight). changeInstancePosition then inserts a zero-filled placeholder whose
+		// wRaceNum is 0, so the shop check below never fires -- if the real add is dropped as a
+		// duplicate the stall is missed for the rest of the session. Let it overwrite instead.
+		if (!existing->second.placeholder || placeholder) {
+			LOG_TRACE("On adding instance with vid=%d, already exists, ignoring packet", player.dwVID);
+			return;
+		}
+		LOG_TRACE("Replacing placeholder instance vid=%d with the real character-add", player.dwVID);
 	}
-	DEBUG_INFO_LEVEL_4("Success Adding instance vid=%d", player.dwVID);
+	else {
+		LOG_TRACE("Success Adding instance vid=%d", player.dwVID);
+	}
 
 	SInstance i = { 0 };
 	i.vid = player.dwVID;
@@ -63,6 +70,7 @@ void CInstanceManager::appendNewInstance(SRcv_PlayerCreatePacket& player)
 	i.bMovingSpeed = player.bMovingSpeed;
 	i.wRaceNum = player.wRaceNum;
 	i.bStateFlag = player.bStateFlag;
+	i.placeholder = placeholder;
 
 	if (i.wRaceNum >= MIN_RACE_SHOP && i.wRaceNum <= MAX_RACE_SHOP) {
 		CNetworkStream& net = CNetworkStream::Instance();
@@ -82,7 +90,7 @@ void CInstanceManager::deleteInstance(DWORD vid)
 	// instance itself was tracked, so a recycled vid never returns a stale sign.
 	shopSigns.erase(vid);
 	if (instances.find(vid) == instances.end()) {
-		DEBUG_INFO_LEVEL_3("On deleting instance with vid=%d doesn't exists, ignoring packet!", vid);
+		LOG_DEBUG("On deleting instance with vid=%d doesn't exists, ignoring packet!", vid);
 		return;
 	}
 	PyObject* pVid = PyLong_FromLong(vid);
@@ -96,11 +104,11 @@ void CInstanceManager::setShopSign(DWORD vid, const char* sign)
 {
 	if (sign && sign[0]) {
 		shopSigns[vid] = sign;
-		DEBUG_INFO_LEVEL_3("Shop sign vid=%d -> '%s'", vid, sign);
+		LOG_DEBUG("Shop sign vid=%d -> '%s'", vid, sign);
 	}
 	else {
 		shopSigns.erase(vid); // empty sign = shop closed / sign cleared
-		DEBUG_INFO_LEVEL_3("Shop sign vid=%d cleared", vid);
+		LOG_DEBUG("Shop sign vid=%d cleared", vid);
 	}
 }
 
@@ -130,7 +138,7 @@ void CInstanceManager::addItemGround(SRcv_GroundItemAddPacket& itemPacket)
 		return;
 	}
 
-	DEBUG_INFO_LEVEL_3("Adding item ground with index=%d vid=%d at position x=%d,y=%d, ownerVID=%d", item.index, item.vid, item.x, item.y, item.can_pick);
+	LOG_DEBUG("Adding item ground with index=%d vid=%d at position x=%d,y=%d, ownerVID=%d", item.index, item.vid, item.x, item.y, item.can_pick);
 
 	groundItems.insert(std::pair<DWORD, SGroundItem>(item.vid, item));
 }
@@ -138,16 +146,16 @@ void CInstanceManager::addItemGround(SRcv_GroundItemAddPacket& itemPacket)
 void CInstanceManager::delItemGround(SRcv_GroundItemDeletePacket& item)
 {
 	if (groundItems.find(item.vid) == groundItems.end()) {
-		DEBUG_INFO_LEVEL_3("On deleting item with vid=%d doesn't exists, ignoring packet!", item.vid);
+		LOG_DEBUG("On deleting item with vid=%d doesn't exists, ignoring packet!", item.vid);
 		return;
 	}
-	DEBUG_INFO_LEVEL_4("Deleting item ground with vid=%d", item.vid);
+	LOG_TRACE("Deleting item ground with vid=%d", item.vid);
 	groundItems.erase(item.vid);
 }
 
 void CInstanceManager::clearInstances()
 {
-	DEBUG_INFO_LEVEL_2("Instances Cleared");
+	LOG_DEBUG("Instances Cleared");
 	instances.clear();
 	groundItems.clear();
 	shopSigns.clear();
@@ -158,7 +166,7 @@ void CInstanceManager::changeItemOwnership(SRcv_PacketOwnership& ownership)
 {
 	auto iter = groundItems.find(ownership.dwVID);
 	if (iter != groundItems.end()) {
-		DEBUG_INFO_LEVEL_4("Setting ground Item %d ownership to %s!", ownership.dwVID, ownership.szName);
+		LOG_TRACE("Setting ground Item %d ownership to %s!", ownership.dwVID, ownership.szName);
 		CPlayer& player = CPlayer::Instance();
 		std::string mainPlayerName = player.getPlayerName();
 		auto& item = iter->second;
@@ -174,7 +182,7 @@ void CInstanceManager::changeItemOwnership(SRcv_PacketOwnership& ownership)
 		
 	}
 	else {
-		DEBUG_INFO_LEVEL_3("Ground Item %d doesn't exist on list while trying to set ownership!", ownership.dwVID);
+		LOG_DEBUG("Ground Item %d doesn't exist on list while trying to set ownership!", ownership.dwVID);
 	}
 }
 
@@ -207,7 +215,7 @@ bool CInstanceManager::isInstanceDead(DWORD vid)
 
 bool CInstanceManager::getCloseItemGround(int x, int y, SGroundItem* buffer)
 {
-	DEBUG_INFO_LEVEL_4("Number of items on ground=%d", groundItems.size());
+	LOG_TRACE("Number of items on ground=%d", groundItems.size());
 
 
 	DWORD selItemVID = 0;
@@ -237,7 +245,7 @@ bool CInstanceManager::getCloseItemGround(int x, int y, SGroundItem* buffer)
 				continue;
 			}
 		}
-		DEBUG_INFO_LEVEL_4("Item Arround itemVID=%d ID=%d can_pick=%d | X:%d  Y:%d", item.vid, item.index, item.can_pick, item.x, item.y);
+		LOG_TRACE("Item Arround itemVID=%d ID=%d can_pick=%d | X:%d  Y:%d", item.vid, item.index, item.can_pick, item.x, item.y);
 		bool is_in = pickupFilter.find(item.index) != pickupFilter.end();
 
 		if (pickOnFilter && is_in) {
@@ -271,7 +279,7 @@ bool CInstanceManager::getCloseItemGround(int x, int y, SGroundItem* buffer)
 	}
 	if (pickItemFirst && selItemVID) {
 		SGroundItem& selItem = groundItems.at(selItemVID);
-		DEBUG_INFO_LEVEL_4("Close Item itemVID=%d ID=%d can_pick=%d | X:%d  Y:%d", selItem.vid, selItem.index, selItem.can_pick, selItem.x, selItem.y);
+		LOG_TRACE("Close Item itemVID=%d ID=%d can_pick=%d | X:%d  Y:%d", selItem.vid, selItem.index, selItem.can_pick, selItem.x, selItem.y);
 		*buffer = selItem;
 		return true;
 	}
@@ -279,13 +287,13 @@ bool CInstanceManager::getCloseItemGround(int x, int y, SGroundItem* buffer)
 	if (selItemVID || selYangVID) {
 		if (minItemDist < minYangDist) {
 			SGroundItem& selItem = groundItems.at(selItemVID);
-			DEBUG_INFO_LEVEL_4("Close Item itemVID=%d ID=%d can_pick =%d  | X:%d  Y:%d", selItem.vid, selItem.index, selItem.can_pick, selItem.x, selItem.y);
+			LOG_TRACE("Close Item itemVID=%d ID=%d can_pick =%d  | X:%d  Y:%d", selItem.vid, selItem.index, selItem.can_pick, selItem.x, selItem.y);
 			*buffer = selItem;
 			return true;
 		}
 		else {
 			SGroundItem& selItem = groundItems.at(selYangVID);
-			DEBUG_INFO_LEVEL_4("Close Yang yangVID=%d ID=%d can_pick=%d  | X:%d  Y:%d", selItem.vid, selItem.index, selItem.can_pick, selItem.x, selItem.y);
+			LOG_TRACE("Close Yang yangVID=%d ID=%d can_pick=%d  | X:%d  Y:%d", selItem.vid, selItem.index, selItem.can_pick, selItem.x, selItem.y);
 			*buffer = selItem;
 			return true;
 		}

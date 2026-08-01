@@ -22,7 +22,9 @@ bool Patterns::Init(Pattern* modulePattern) {
 		// reads across arbitrary region boundaries and faults (0xC0000005 at ~0x15270000) on the new client's
 		// rearranged layout. The host module is simply the main executable: GetModuleHandle(NULL) gives its base
 		// and the PE OptionalHeader.SizeOfImage bounds the scan exactly to metin2client.exe -- no giant scan, and
-		// every real signature lives inside this range anyway. (modulePattern is now unused; kept for ABI.)
+		// every real signature lives inside this range anyway. modulePattern's CONTENTS are dead, but its
+		// NULL-ness still selects the branch: CAddressLoader passes &global to reach this path, while the
+		// pattern scanner relies on the default 0 to reach setModuleInfo(). Do not drop the argument.
 		(void)modulePattern;
 		HMODULE hExe = GetModuleHandle(NULL);
 		if (!hExe)
@@ -34,7 +36,7 @@ bool Patterns::Init(Pattern* modulePattern) {
 		mInfo.SizeOfImage = nt->OptionalHeader.SizeOfImage;
 	}
 
-	DEBUG_INFO_LEVEL_1("Module start address: %x\nModule Size:%x", mInfo.lpBaseOfDll, mInfo.SizeOfImage);
+	LOG_INFO("Module base=%x size=%x", mInfo.lpBaseOfDll, mInfo.SizeOfImage);
 
 	return true;
 }
@@ -82,7 +84,17 @@ DWORD Patterns::FindPattern(const char *pattern, const char *mask)
 					}
 				}
 				else {
-					DEBUG_INFO_LEVEL_1("Error Querying memory at %#x", indexAddr);
+					// This is a byte-granular loop: continuing without advancing re-queries the same
+					// address, so one failing region would re-fail and re-log forever, hanging the game
+					// thread while it fills the disk. VirtualQuery told us no region size, so skip a
+					// page and log only the first failure.
+					static bool loggedQueryFail = false;
+					if (!loggedQueryFail) {
+						loggedQueryFail = true;
+						LOG_ERROR("Error Querying memory at %#x", indexAddr);
+					}
+					pageEndAddr = (indexAddr & 0xFFFFF000) + 0x1000;
+					indexAddr = pageEndAddr;
 					continue;
 				}
 			}
@@ -117,11 +129,11 @@ DWORD* Patterns::GetPatternAddress(Pattern* pat) {
 	if (addr) { 
 		
 		DWORD* result = (DWORD*)((int)addr + pat->offset);
-		DEBUG_INFO_LEVEL_1("Pattern %s with address -> %#x", pat->name, result);
+		LOG_DEBUG("Pattern %s with address -> %#x", pat->name, result);
 		return result;
 
 	}else {
-		DEBUG_INFO_LEVEL_1("ERROR FINDING PATTERN -> %s", pat->name);
+		LOG_ERROR("ERROR FINDING PATTERN -> %s", pat->name);
 	}
 
 	return addr;
@@ -136,7 +148,7 @@ bool Patterns::setModuleInfo()
 
 
 	if (!path_size) {
-		DEBUG_INFO_LEVEL_1("Fail to Get Module FileName");
+		LOG_ERROR("Fail to Get Module FileName");
 		return false;
 	}
 
@@ -146,7 +158,7 @@ bool Patterns::setModuleInfo()
 	if (hModule == 0)
 		return false;
 
-	printf("Scanning Module: %s\n", buffer);
+	LOG_INFO("Scanning module: %s", buffer);
 	GetModuleInformation(psHandle, hModule, &mInfo, sizeof(MODULEINFO));
 	mInfo.SizeOfImage = getModuleSize(mInfo.lpBaseOfDll);
 	return true;
@@ -176,7 +188,7 @@ void Patterns::printModules()
 
 	HANDLE Snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
 	if (Snapshot == INVALID_HANDLE_VALUE) {
-		DEBUG_INFO_LEVEL_1("Error CreatingToolhelp32, code: %#x", GetLastError());
+		LOG_ERROR("Error CreatingToolhelp32, code: %#x", GetLastError());
 		return;
 	}
 
@@ -184,19 +196,17 @@ void Patterns::printModules()
 	module.dwSize = sizeof(MODULEENTRY32);
 
 	if (!Module32First(Snapshot, &module)) {
-		DEBUG_INFO_LEVEL_1("Error on Module32First, code: %#x", GetLastError());
+		LOG_ERROR("Error on Module32First, code: %#x", GetLastError());
 		return;
 	}
 
 	do
 	{
-		printf("\n\n     MODULE NAME:     %S", module.szModule);
-		printf("\n     executable     = %S", module.szExePath);
-		printf("\n     process ID     = 0x%08X", module.th32ProcessID);
-		printf("\n     ref count (g)  =     0x%04X", module.GlblcntUsage);
-		printf("\n     ref count (p)  =     0x%04X", module.ProccntUsage);
-		printf("\n     base address   = 0x%08X", (DWORD)module.modBaseAddr);
-		printf("\n     base size      = 0x%10X", module.modBaseSize);
+		// One record per line: the log is grepped, and a multi-line entry loses the timestamp and
+		// level prefix on every line but the first.
+		LOG_DEBUG("module %s base=0x%08X size=0x%X refs=%u/%u pid=0x%08X exe=%s",
+			module.szModule, (DWORD)module.modBaseAddr, module.modBaseSize,
+			module.GlblcntUsage, module.ProccntUsage, module.th32ProcessID, module.szExePath);
 
 	} while (Module32Next(Snapshot, &module));
 }

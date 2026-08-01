@@ -4,9 +4,8 @@
 // Original Communication.h pulled in libcurl + jsoncpp + websocketpp + asio,
 // none of which are installed here and none of which uBot's walker/pathfinding
 // features use. This stub keeps the exact public surface referenced by
-// PythonModule.cpp / App.cpp / CAddressLoader.cpp so they compile unchanged,
-// but every method is an inert no-op. (USE_BUILTIN_PATTERNS path never calls
-// the server methods at runtime.)
+// PythonModule.cpp / App.cpp so they compile unchanged, but every method is an
+// inert no-op -- nothing here talks to a server.
 // ---------------------------------------------------------------------------
 #include "stdafx.h"
 #include <string>

@@ -37,7 +37,10 @@
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
-    <CharacterSet>Unicode</CharacterSet>
+    <!-- MultiByte like every other project here, and like this one's own Debug config. The
+         sources pass narrow strings to Win32 APIs throughout, so Unicode broke the Release
+         build outright. -->
+    <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -149,6 +152,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\common\Log.cpp" />
+    <ClCompile Include="..\common\utils.cpp" />
     <ClCompile Include="Assembler.cpp" />
     <ClCompile Include="Hook.cpp" />
     <ClCompile Include="main.cpp" />
@@ -156,7 +161,9 @@
     <ClCompile Include="Patterns.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\common\Log.h" />
     <ClInclude Include="..\common\Offsets.h" />
+    <ClInclude Include="..\common\utils.h" />
     <ClInclude Include="Assembler.h" />
     <ClInclude Include="DetoursHook.h" />
     <ClInclude Include="Hook.h" />

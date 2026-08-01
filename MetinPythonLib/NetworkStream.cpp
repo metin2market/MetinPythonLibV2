@@ -38,16 +38,16 @@ void CNetworkStream::importPython()
 	netMod = PyImport_ImportModule("net");
 
 	if (!netMod) {
-		DEBUG_INFO_LEVEL_1("Could not import net module! Maybe init.py was not executed");
+		LOG_ERROR("Could not import net module! Maybe init.py was not executed");
 	}
 	if (netMod) {
-		DEBUG_INFO_LEVEL_1("Net module loaded");
+		LOG_INFO("Net module loaded");
 	}
 }
 
 bool CNetworkStream::SendBattlePacket(DWORD vid, BYTE type)
 {
-	DEBUG_INFO_LEVEL_5("Sending AttackPacket vid=%d",vid);
+	LOG_TRACE("Sending AttackPacket vid=%d",vid);
 	CMemory& mem = CMemory::Instance();
 	return mem.callSendAttackPacket(type, vid);
 }
@@ -55,7 +55,7 @@ bool CNetworkStream::SendBattlePacket(DWORD vid, BYTE type)
 bool CNetworkStream::SendStatePacket(fPoint& pos, float rot, BYTE eFunc, BYTE uArg)
 {
 	CMemory& mem = CMemory::Instance();
-	DEBUG_INFO_LEVEL_5("Sending StatePacket to x=%f,y=%f,rot=%f,eFunc=%d,uArg=%d", pos.x,pos.y,rot,eFunc,uArg);
+	LOG_TRACE("Sending StatePacket to x=%f,y=%f,rot=%f,eFunc=%d,uArg=%d", pos.x,pos.y,rot,eFunc,uArg);
 	return mem.callSendStatePacket(pos, rot, eFunc, uArg);
 }
 
@@ -118,7 +118,7 @@ bool CNetworkStream::SendPickupItemPacket(DWORD vid)
 {
 	SSend_PickupPacket packet;
 	packet.vid = vid;
-	DEBUG_INFO_LEVEL_4("Send Pickup Item vid=%d", vid);
+	LOG_TRACE("Send Pickup Item vid=%d", vid);
 	if (SendPacket(sizeof(SSend_PickupPacket), &packet))
 		return SendSequencePacket();
 
@@ -145,9 +145,9 @@ bool CNetworkStream::SendSyncPacket(std::vector<InstanceLocalPosition>& targetPo
 	SSend_SyncPosition kPacketSync;
 	kPacketSync.wSize = sizeof(kPacketSync) + sizeof(SSend_SyncPositionElement) * targetPositions.size();
 
-	DEBUG_INFO_LEVEL_3("Sending sync packet size=%d", kPacketSync.wSize);
+	LOG_DEBUG("Sending sync packet size=%d", kPacketSync.wSize);
 	if (!SendPacket(sizeof(SSend_SyncPosition), &kPacketSync)) {
-		DEBUG_INFO_LEVEL_2("Fail to send Sync Packet");
+		LOG_DEBUG("Fail to send Sync Packet");
 		return false;
 	}
 	for(InstanceLocalPosition & pos : targetPositions){
@@ -155,15 +155,15 @@ bool CNetworkStream::SendSyncPacket(std::vector<InstanceLocalPosition>& targetPo
 		kSyncPos.dwVID = pos.vid;
 		kSyncPos.lX = (long)pos.x;
 		kSyncPos.lY = (long)pos.y;
-		DEBUG_INFO_LEVEL_3("SendSyncPacketElement: Local vid=%d, x=%d, y=%d", kSyncPos.dwVID, kSyncPos.lX, kSyncPos.lY);
+		LOG_DEBUG("SendSyncPacketElement: Local vid=%d, x=%d, y=%d", kSyncPos.dwVID, kSyncPos.lX, kSyncPos.lY);
 		if (!LocalToGlobalPosition(kSyncPos.lX, kSyncPos.lY)) {
-			DEBUG_INFO_LEVEL_2("Fail to transform local to global on Sync Packet");
+			LOG_DEBUG("Fail to transform local to global on Sync Packet");
 			return false;
 		}
-		DEBUG_INFO_LEVEL_3("SendSyncPacketElement: Global vid=%d, x=%d, y=%d", kSyncPos.dwVID, kSyncPos.lX, kSyncPos.lY);
+		LOG_DEBUG("SendSyncPacketElement: Global vid=%d, x=%d, y=%d", kSyncPos.dwVID, kSyncPos.lX, kSyncPos.lY);
 		if (!SendPacket(sizeof(SSend_SyncPositionElement), &kSyncPos))
 		{
-			DEBUG_INFO_LEVEL_2("Fail to send Sync Element Packet");
+			LOG_DEBUG("Fail to send Sync Element Packet");
 			return false;
 		}
 	}
@@ -197,7 +197,7 @@ bool CNetworkStream::__RecvPacket(int size, void* buffer)
 bool CNetworkStream::__SendPacket(int size, void* buffer)
 {
 	BYTE header = getPacketHeader(buffer, size);
-	DEBUG_INFO_LEVEL_4("Hook SendPacket called header = %d return size=%d", header, size);
+	LOG_TRACE("Hook SendPacket called header = %d return size=%d", header, size);
 	//PacketFilter
 	if (size > 0 && printToConsole) {
 		BYTE* byte_buffer = (BYTE*)buffer;
@@ -210,7 +210,7 @@ bool CNetworkStream::__SendPacket(int size, void* buffer)
 	switch (header) {
 	case HEADER_CG_FISHING: { //SEQUENCE IS NOT SENT
 		/*if (blockFishingPackets) {
-			DEBUG_INFO_LEVEL_2("Blocking Fishing Packet");
+			LOG_DEBUG("Blocking Fishing Packet");
 			block_next_sequence = 1; //Also block sequence packet
 			return 1;			//Block fishing packets
 		}*/
@@ -224,7 +224,7 @@ bool CNetworkStream::__SendPacket(int size, void* buffer)
 
 bool CNetworkStream::__SendStatePacket(fPoint& pos, float rot, BYTE eFunc, BYTE uArg)
 {
-	DEBUG_INFO_LEVEL_3("__SendStatePacket StartPos X->%f, Y->%f, EndPos X->%f, Y->%f", lastPoint.x, lastPoint.y, pos.x, pos.y);
+	LOG_DEBUG("__SendStatePacket StartPos X->%f, Y->%f, EndPos X->%f, Y->%f", lastPoint.x, lastPoint.y, pos.x, pos.y);
 	CMemory& mem = CMemory::Instance();
 
 	if (eFunc == CHAR_STATE_FUNC_WALK && speed_Multiplier > 1) {
@@ -236,10 +236,10 @@ bool CNetworkStream::__SendStatePacket(fPoint& pos, float rot, BYTE eFunc, BYTE 
 			lastPointIsStored = true;
 		}
 		else {
-			//DEBUG_INFO_LEVEL_3("starting X->%f, Y->%f, EndPos X->%f, Y->%f", lastPoint.x, lastPoint.y, pos.x, pos.y);
+			//LOG_DEBUG("starting X->%f, Y->%f, EndPos X->%f, Y->%f", lastPoint.x, lastPoint.y, pos.x, pos.y);
 			if (distance(lastPoint.x, lastPoint.y, pos.x, pos.y) > 1) {
 
-				//DEBUG_INFO_LEVEL_3("BOSTING");
+				//LOG_DEBUG("BOSTING");
 				fPoint currPosition = { 0,0 };
 				CPlayer& player = CPlayer::Instance();
 				if (player.getLastMovementType() == MOVE_POSITION)
@@ -253,7 +253,7 @@ bool CNetworkStream::__SendStatePacket(fPoint& pos, float rot, BYTE eFunc, BYTE 
 
 					fPoint destPos = player.getLastDestPosition();
 					if (checkPointBetween(lastPoint.x, lastPoint.y, destPos.x, destPos.y, currPosition.x, currPosition.y)) {
-						//DEBUG_INFO_LEVEL_3("CharacterState Point is in between");
+						//LOG_DEBUG("CharacterState Point is in between");
 						currPosition.x = destPos.x;
 						currPosition.y = destPos.y;
 					}
@@ -262,7 +262,7 @@ bool CNetworkStream::__SendStatePacket(fPoint& pos, float rot, BYTE eFunc, BYTE 
 				int steps = dist / MAX_TELEPORT_DIST;
 
 
-				//DEBUG_INFO_LEVEL_3("StartPos X->%f, Y->%f, EndPos X->%f, Y->%f, dist %f", lastPoint.x, lastPoint.y, currPosition.x, currPosition.y, dist);
+				//LOG_DEBUG("StartPos X->%f, Y->%f, EndPos X->%f, Y->%f, dist %f", lastPoint.x, lastPoint.y, currPosition.x, currPosition.y, dist);
 
 				//Fix large movement speed
 				for (int step = 0; step < steps; step++) {
@@ -270,7 +270,7 @@ bool CNetworkStream::__SendStatePacket(fPoint& pos, float rot, BYTE eFunc, BYTE 
 					pos.x = this_pos.x;
 					pos.y = this_pos.y;
 
-					//DEBUG_INFO_LEVEL_3("CharStateBoostedSteps X->%f, Y->%f, eFunc %d, rot %f, uArg %d, step %d, dist %f steps %f", pos.x, pos.y, 0, rot, uArg, step, distance(lastPoint.x, lastPoint.y, pos.x, pos.y), (float)(step + 1) / (float)(steps + 1));
+					//LOG_DEBUG("CharStateBoostedSteps X->%f, Y->%f, eFunc %d, rot %f, uArg %d, step %d, dist %f steps %f", pos.x, pos.y, 0, rot, uArg, step, distance(lastPoint.x, lastPoint.y, pos.x, pos.y), (float)(step + 1) / (float)(steps + 1));
 
 					mem.callSendStatePacket(pos, rot, CHAR_STATE_FUNC_STOP, 0);
 				}
@@ -278,7 +278,7 @@ bool CNetworkStream::__SendStatePacket(fPoint& pos, float rot, BYTE eFunc, BYTE 
 
 				pos.x = currPosition.x;
 				pos.y = currPosition.y;
-				//DEBUG_INFO_LEVEL_3("CharStateBoosted X->%f, Y->%f, eFunc %d, rot %f, uArg %d, dist %f", pos.x, pos.y, 0, rot, uArg, distance(lastPoint.x, lastPoint.y, pos.x, pos.y));
+				//LOG_DEBUG("CharStateBoosted X->%f, Y->%f, eFunc %d, rot %f, uArg %d, dist %f", pos.x, pos.y, 0, rot, uArg, distance(lastPoint.x, lastPoint.y, pos.x, pos.y));
 
 				mem.callSendStatePacket(pos, rot, CHAR_STATE_FUNC_STOP, 0);
 
@@ -304,7 +304,7 @@ bool CNetworkStream::__SendStatePacket(fPoint& pos, float rot, BYTE eFunc, BYTE 
 	else {
 		lastPointIsStored = false;
 	}
-	DEBUG_INFO_LEVEL_3("End __SendStatePacket X->%f, Y->%f, eFunc %d, rot %f, uArg %d", pos.x, pos.y, eFunc, rot, uArg);
+	LOG_DEBUG("End __SendStatePacket X->%f, Y->%f, eFunc %d, rot %f, uArg %d", pos.x, pos.y, eFunc, rot, uArg);
 	return mem.callSendStatePacket(pos, rot, eFunc, uArg);
 }
 
@@ -320,15 +320,9 @@ bool CNetworkStream::__CheckPacket(BYTE * header)
 	// the client floods us with clear + character add/del + phase packets; doing that
 	// work without holding the GIL, or leaving a stray Python error set, corrupts the
 	// interpreter and crashes inside python27.dll (0xc0000005) on world reload.
-	extern bool ExToggle_PacketGil();            // App.cpp -- runtime bisect toggles (exlib_toggles.txt)
-	extern bool ExToggle_CheckPacket();
-	if (!ExToggle_CheckPacket())                 // checkpacket=0 -> skip ALL our packet processing (InstancesList
-		return val;                              // + callbacks) to bisect the teleport UAF. Entity detection dies.
-	const bool __useGil = ExToggle_PacketGil();
-	PyGILState_STATE __gil;
-	if (__useGil) __gil = PyGILState_Ensure();
+	PyGILState_STATE __gil = PyGILState_Ensure();
 
-	DEBUG_INFO_LEVEL_5("Hook CheckPacket header=%d", *header);
+	LOG_TRACE("Hook CheckPacket header=%d", *header);
 
 	switch (currentPhase) {
 	case PHASE_GAME:
@@ -347,7 +341,7 @@ bool CNetworkStream::__CheckPacket(BYTE * header)
 					setPhase(phase);
 			}
 			else {
-				DEBUG_INFO_LEVEL_2("Could not parse phase packet!");
+				LOG_DEBUG("Could not parse phase packet!");
 			}
 			break;
 		}
@@ -359,7 +353,7 @@ bool CNetworkStream::__CheckPacket(BYTE * header)
 				mgr.appendNewInstance(instance);
 			}
 			else {
-				DEBUG_INFO_LEVEL_2("Could not parse character add packet!");
+				LOG_DEBUG("Could not parse character add packet!");
 			}
 			break;
 		}
@@ -369,16 +363,17 @@ bool CNetworkStream::__CheckPacket(BYTE * header)
 	}
 
 	// Drop any exception a callback/dict op left pending so it can't propagate into the
-	// game's own Python on the next packet, then release the GIL we took above.
+	// game's own Python on the next packet, then release the GIL we took above. This is the only
+	// entry point into that whole subtree, so no callback below needs its own clear.
 	if (PyErr_Occurred())
 		PyErr_Clear();
-	if (__useGil) PyGILState_Release(__gil);
+	PyGILState_Release(__gil);
 	return val;
 }
 
 bool CNetworkStream::__SendAttackPacket(BYTE type, DWORD vid)
 {
-	DEBUG_INFO_LEVEL_5("__SendAttackPacket called ");
+	LOG_TRACE("__SendAttackPacket called ");
 	CMemory& mem = CMemory::Instance();
 	if (m_blockAttackPackets)
 		return true;
@@ -388,10 +383,10 @@ bool CNetworkStream::__SendAttackPacket(BYTE type, DWORD vid)
 
 bool CNetworkStream::__SendSequencePacket()
 {
-	DEBUG_INFO_LEVEL_5("__SendSequence called ");
+	LOG_TRACE("__SendSequence called ");
 	if (block_next_sequence) {
 		block_next_sequence = 0;
-		DEBUG_INFO_LEVEL_3("Hook SendSequence called return val=%d", 1);
+		LOG_DEBUG("Hook SendSequence called return val=%d", 1);
 		return 1;
 	}
 	CMemory& mem = CMemory::Instance();
@@ -412,7 +407,7 @@ void CNetworkStream::forceGamePhase()
 		return;
 	currentPhase = PHASE_GAME;
 	lastPointIsStored = false;
-	DEBUG_INFO_LEVEL_1("Phase forced to GAME (walker build)");
+	LOG_INFO("Phase forced to GAME (walker build)");
 	CBackground& background = CBackground::Instance();
 	background.setCurrentCollisionMap();
 }
@@ -424,7 +419,7 @@ void CNetworkStream::reloadGamePhase()
 	// unconditionally so the walker's collision map matches the NEW map.
 	currentPhase = PHASE_GAME;
 	lastPointIsStored = false;
-	DEBUG_INFO_LEVEL_1("World re-entry: reloading collision map (walker build)");
+	LOG_INFO("World re-entry: reloading collision map (walker build)");
 	CBackground& background = CBackground::Instance();
 	background.setCurrentCollisionMap();
 }
@@ -432,7 +427,7 @@ void CNetworkStream::reloadGamePhase()
 DWORD CNetworkStream::GetMainCharacterVID()
 {
 	if (netMod == 0) {
-		DEBUG_INFO_LEVEL_3("Net Module has not been loaded!");
+		LOG_DEBUG("Net Module has not been loaded!");
 	}
 	//return mainCharacterVID;
 	long ret = 0;
@@ -450,7 +445,17 @@ DWORD CNetworkStream::GetMainCharacterVID()
 bool CNetworkStream::GlobalToLocalPosition(long& lx, long& ly)
 {
 	CMemory& mem = CMemory::Instance();
-	return mem.callGlobalToLocalPosition(lx,ly);
+	if (mem.callGlobalToLocalPosition(lx, ly))
+		return true;
+	// Every packet-path caller discards this false and keeps the untouched GLOBAL coords -- ~100x too
+	// large, so getCloseItemGround never matches pickRange and pickup silently stops. Only a dead
+	// NETWORKCLASS_POINTER or GLOBALTOLOCAL_FUNCTION gets here, so one line is the whole story.
+	static bool logged = false;
+	if (!logged) {
+		logged = true;
+		LOG_ERROR("GlobalToLocalPosition is unavailable -- packet coordinates stay global (pickup and positions are wrong)");
+	}
+	return false;
 }
 
 bool CNetworkStream::LocalToGlobalPosition(LONG& rLocalX, LONG& rLocalY)
@@ -462,24 +467,26 @@ bool CNetworkStream::LocalToGlobalPosition(LONG& rLocalX, LONG& rLocalY)
 void CNetworkStream::callDigMotionCallback(DWORD target_player, DWORD target_vein, DWORD n)
 {
 	//call python callback
-	DEBUG_INFO_LEVEL_3("Mining packet recived");
+	LOG_DEBUG("Mining packet recived");
 	if (recvDigMotionCallback && PyCallable_Check(recvDigMotionCallback)) {
-		DEBUG_INFO_LEVEL_3("Calling python DigMotionCallback");
+		LOG_DEBUG("Calling python DigMotionCallback");
 		PyObject* val = Py_BuildValue("(iii)", target_player, target_vein, n);
-		PyObject_CallObject(recvDigMotionCallback, val);
-		Py_DECREF(val);
+		PyObject* res = PyObject_CallObject(recvDigMotionCallback, val);
+		Py_XDECREF(res);
+		Py_XDECREF(val);
 	}
 }
 
 void CNetworkStream::callStartFishCallback()
 {
 	//call python callback
-	DEBUG_INFO_LEVEL_3("Start Fish recived");
+	LOG_DEBUG("Start Fish recived");
 	if (recvStartFishCallback && PyCallable_Check(recvStartFishCallback)) {
-		DEBUG_INFO_LEVEL_3("Calling python StartFishCallback");
+		LOG_DEBUG("Calling python StartFishCallback");
 		PyObject* val = Py_BuildValue("()");
-		PyObject_CallObject(recvStartFishCallback, val);
-		Py_DECREF(val);
+		PyObject* res = PyObject_CallObject(recvStartFishCallback, val);
+		Py_XDECREF(res);
+		Py_XDECREF(val);
 	}
 }
 
@@ -487,7 +494,7 @@ void CNetworkStream::callStartFishCallback()
 bool CNetworkStream::setDigMotionCallback(PyObject* func)
 {
 	if (PyCallable_Check(func)) {
-		DEBUG_INFO_LEVEL_2("RecvDigMotionCallback function set sucessfully");
+		LOG_DEBUG("RecvDigMotionCallback function set sucessfully");
 		if(recvDigMotionCallback)
 			Py_DECREF(recvDigMotionCallback);
 		recvDigMotionCallback = func;
@@ -495,7 +502,7 @@ bool CNetworkStream::setDigMotionCallback(PyObject* func)
 		return true;
 	}
 	else {
-		DEBUG_INFO_LEVEL_1("RegisterNewDigMotionCallback argument is not a function");
+		LOG_WARN("RegisterNewDigMotionCallback argument is not a function");
 		recvDigMotionCallback = 0;
 		return false;
 	}
@@ -514,7 +521,7 @@ void CNetworkStream::SetFishingPacketsBlock(bool val)
 bool CNetworkStream::setStartFishCallback(PyObject* func)
 {
 	if (PyCallable_Check(func)) {
-		DEBUG_INFO_LEVEL_2("StartFishCallback function set sucessfully");
+		LOG_DEBUG("StartFishCallback function set sucessfully");
 		if (recvStartFishCallback)
 			Py_DECREF(recvStartFishCallback);
 		recvStartFishCallback = func;
@@ -522,7 +529,7 @@ bool CNetworkStream::setStartFishCallback(PyObject* func)
 		return true;
 	}
 	else {
-		DEBUG_INFO_LEVEL_1("RegisterStartFishCallback argument is not a function");
+		LOG_WARN("RegisterStartFishCallback argument is not a function");
 		recvStartFishCallback = 0;
 		return false;
 	}
@@ -531,7 +538,7 @@ bool CNetworkStream::setStartFishCallback(PyObject* func)
 bool CNetworkStream::setNewShopCallback(PyObject* func)
 {
 	if (!PyCallable_Check(func)) {
-		DEBUG_INFO_LEVEL_1("RegisterNewShopCallback argument is not a function");
+		LOG_WARN("RegisterNewShopCallback argument is not a function");
 		return false;
 	}
 
@@ -540,7 +547,7 @@ bool CNetworkStream::setNewShopCallback(PyObject* func)
 	shopRegisterCallback = func;
 	Py_XINCREF(func); // own a ref (see setDigMotionCallback)
 
-	DEBUG_INFO_LEVEL_2("RegisterNewShopCallback function set sucessfully");
+	LOG_DEBUG("RegisterNewShopCallback function set sucessfully");
 
 	return true;
 }
@@ -548,7 +555,7 @@ bool CNetworkStream::setNewShopCallback(PyObject* func)
 void CNetworkStream::callNewInstanceShop(DWORD player)
 {
 	if (shopRegisterCallback && PyCallable_Check(shopRegisterCallback)) {
-		DEBUG_INFO_LEVEL_3("Calling python RegisterShopCallback");
+		LOG_DEBUG("Calling python RegisterShopCallback");
 		PyObject* val = Py_BuildValue("(i)", player);
 		PyObject* res = PyObject_CallObject(shopRegisterCallback, val);
 		Py_XDECREF(res);
@@ -559,7 +566,7 @@ void CNetworkStream::callNewInstanceShop(DWORD player)
 bool CNetworkStream::setChatCallback(PyObject* func)
 {
 	if (!PyCallable_Check(func)) {
-		DEBUG_INFO_LEVEL_1("ChatCallback argument is not a function");
+		LOG_WARN("ChatCallback argument is not a function");
 		return false;
 	}
 
@@ -568,7 +575,7 @@ bool CNetworkStream::setChatCallback(PyObject* func)
 	chatCallback = func;
 	Py_XINCREF(func); // own a ref (see setDigMotionCallback)
 
-	DEBUG_INFO_LEVEL_2("ChatCallback function set sucessfully");
+	LOG_DEBUG("ChatCallback function set sucessfully");
 
 	return true;
 }
@@ -576,7 +583,7 @@ bool CNetworkStream::setChatCallback(PyObject* func)
 void CNetworkStream::callRecvChatCallback(DWORD vid, const char* msg, BYTE type, BYTE empire, const char* locale)
 {
 	if (chatCallback && PyCallable_Check(chatCallback)) {
-		DEBUG_INFO_LEVEL_3("Calling python chatCallback message=%s,locale=%s",msg,locale);
+		LOG_DEBUG("Calling python chatCallback message=%s,locale=%s",msg,locale);
 		PyObject* val = Py_BuildValue("iiiss", vid,type,empire,msg,locale);
 		PyObject* res = PyObject_CallObject(chatCallback, val);
 		Py_XDECREF(res);
@@ -587,7 +594,7 @@ void CNetworkStream::callRecvChatCallback(DWORD vid, const char* msg, BYTE type,
 bool CNetworkStream::setRecvAddGrndItemCallback(PyObject* func)
 {
 	if (!PyCallable_Check(func)) {
-		DEBUG_INFO_LEVEL_1("RecvAddGrndItemCallback argument is not a function");
+		LOG_WARN("RecvAddGrndItemCallback argument is not a function");
 		return false;
 	}
 
@@ -596,7 +603,7 @@ bool CNetworkStream::setRecvAddGrndItemCallback(PyObject* func)
 	recvAddGrndItemCallback = func;
 	Py_XINCREF(func); // own a ref (see setDigMotionCallback)
 
-	DEBUG_INFO_LEVEL_2("RecvAddGrndItemCallback function set sucessfully");
+	LOG_DEBUG("RecvAddGrndItemCallback function set sucessfully");
 
 	return true;
 }
@@ -604,7 +611,7 @@ bool CNetworkStream::setRecvAddGrndItemCallback(PyObject* func)
 bool CNetworkStream::setRecvChangeOwnershipGrndItemCallback(PyObject* func)
 {
 	if (!PyCallable_Check(func)) {
-		DEBUG_INFO_LEVEL_1("RecvChangeOwnershipGrndItemCallback argument is not a function");
+		LOG_WARN("RecvChangeOwnershipGrndItemCallback argument is not a function");
 		return false;
 	}
 
@@ -613,7 +620,7 @@ bool CNetworkStream::setRecvChangeOwnershipGrndItemCallback(PyObject* func)
 	recvChangeOwnershipGrndItemCallback = func;
 	Py_XINCREF(func); // own a ref (see setDigMotionCallback)
 
-	DEBUG_INFO_LEVEL_2("RecvChangeOwnershipGrndItemCallback function set sucessfully");
+	LOG_DEBUG("RecvChangeOwnershipGrndItemCallback function set sucessfully");
 
 	return true;
 }
@@ -621,7 +628,7 @@ bool CNetworkStream::setRecvChangeOwnershipGrndItemCallback(PyObject* func)
 bool CNetworkStream::setRecvDelGrndItemCallback(PyObject* func)
 {
 	if (!PyCallable_Check(func)) {
-		DEBUG_INFO_LEVEL_1("RecvDelGrndItemCallback argument is not a function");
+		LOG_WARN("RecvDelGrndItemCallback argument is not a function");
 		return false;
 	}
 
@@ -630,23 +637,21 @@ bool CNetworkStream::setRecvDelGrndItemCallback(PyObject* func)
 	recvDelGrndItemCallback = func;
 	Py_XINCREF(func); // own a ref (see setDigMotionCallback)
 
-	DEBUG_INFO_LEVEL_2("RecvDelGrndItemCallback function set sucessfully");
+	LOG_DEBUG("RecvDelGrndItemCallback function set sucessfully");
 
 	return true;
 }
 
+// The sniffer shares CApp::SetupConsole's console rather than owning one: LaunchPacketFilter /
+// ClosePacketFilter are only exported under _DEBUG, and that is exactly the build where CApp has
+// already allocated the console and freopen'd stdout/stderr/stdin onto it. Calling FreeConsole here
+// would tear those out from under every other logger in the process.
 void CNetworkStream::openConsole()
 {
 	filterInboundOnlyIncluded = false;
 	filterOutboundOnlyIncluded = false;
 	clearPacketFilter(OUTBOUND);
 	clearPacketFilter(INBOUND);
-	AllocConsole();
-#ifdef _DEBUG
-	setDebugOff();
-	return;
-#endif
-	system("cls");
 	SetConsoleTitle("PACKET SNIFFER");
 }
 
@@ -657,11 +662,6 @@ void CNetworkStream::closeConsole()
 	stopFilterPacket();
 	clearPacketFilter(OUTBOUND);
 	clearPacketFilter(INBOUND);
-#ifdef _DEBUG
-	setDebugOn();
-	return;
-#endif
-	FreeConsole();
 }
 
 void CNetworkStream::startFilterPacket()
@@ -771,7 +771,7 @@ void CNetworkStream::setPhase(SRcv_ChangePhasePacket& phase) {
 	//	return;
 	currentPhase = phase.phase;
 	lastPointIsStored = false;
-	DEBUG_INFO_LEVEL_1("Phased changed to: %d", currentPhase);
+	LOG_INFO("Phased changed to: %d", currentPhase);
 	CBackground& background = CBackground::Instance();
 	CInstanceManager& mgr = CInstanceManager::Instance();
 	//CPlayer& player = CPlayer::Instance
@@ -788,7 +788,7 @@ void CNetworkStream::setPhase(SRcv_ChangePhasePacket& phase) {
 void CNetworkStream::handleChatPacket(SRcv_ChatPacket& packet)
 {
 	if (packet.size > 1025) {
-		DEBUG_INFO_LEVEL_1("Error chat packet recived is too large dwSize=%d",packet.size);
+		LOG_WARN("Error chat packet recived is too large dwSize=%d",packet.size);
 		return;
 	}
 	int startChatMsgIndex = sizeof(SRcv_ChatPacket);
@@ -796,7 +796,10 @@ void CNetworkStream::handleChatPacket(SRcv_ChatPacket& packet)
 	char* locale = (char*)((int)line + sizeof(SRcv_ChatPacket) + 1);
 	char* msg = (char*)((int)line + sizeof(SRcv_ChatPacket) + 4);
 	if (!peekNetworkStream(packet.size, line)) {
-		DEBUG_INFO_LEVEL_2("Could not parse chat message packet!");
+		// line is still all zeroes, so firing the callback would report a real empty message from
+		// this VID to python instead of a dropped packet.
+		LOG_WARN("Could not peek chat message packet, dwSize=%d", packet.size);
+		return;
 	}
 
 	callRecvChatCallback(packet.dwVID, msg, packet.type, packet.bEmpire,locale);
@@ -822,7 +825,7 @@ int CNetworkStream::getFishingPacketSize(BYTE header, bool isRecive)
 		case 0x2:
 			return 0x14;
 	}
-	DEBUG_INFO_LEVEL_3("Fishing header unknown: %d", header);
+	LOG_DEBUG("Fishing header unknown: %d", header);
 	return 0;
 }
 
@@ -846,7 +849,7 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 				CMemory& mem = CMemory::Instance();
 				BYTE tmp[0x21];
 				if(!mem.callRecvPacket(getFishingPacketSize(instancePacket.fishingHeader), tmp)) {
-					DEBUG_INFO_LEVEL_2("Could not block fishing packet!");
+					LOG_DEBUG("Could not block fishing packet!");
 				}
 
 				if (instancePacket.fishingHeader == 2) {
@@ -856,7 +859,7 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 			}
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse fishing packet!");
+			LOG_DEBUG("Could not parse fishing packet!");
 		}
 		break;
 	}
@@ -866,7 +869,7 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 			handleChatPacket(chatPacket);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse chat packet!");
+			LOG_DEBUG("Could not parse chat packet!");
 		}
 		break;
 	}
@@ -878,7 +881,7 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 			mgr.addItemGround(instance);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse item ground add packet!");
+			LOG_DEBUG("Could not parse item ground add packet!");
 		}
 		break;
 	}
@@ -889,7 +892,7 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 			mgr.delItemGround(instance);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse item ground delete packet!");
+			LOG_DEBUG("Could not parse item ground delete packet!");
 		}
 		break;
 	}
@@ -900,7 +903,7 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 			CInstanceManager& mgr = CInstanceManager::Instance();
 			mgr.appendNewInstance(instance);
 		}else {
-			DEBUG_INFO_LEVEL_2("Could not parse character add packet!");
+			LOG_DEBUG("Could not parse character add packet!");
 		}
 		break;
 	}
@@ -913,7 +916,7 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 			mgr.changeInstancePosition(instance);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse character move packet!");
+			LOG_DEBUG("Could not parse character move packet!");
 		}
 		break;
 	}
@@ -925,7 +928,7 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 			mgr.deleteInstance(instance_.dwVID);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse character delete packet!");
+			LOG_DEBUG("Could not parse character delete packet!");
 		}
 		break;
 	}
@@ -936,7 +939,7 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 			mgr.changeItemOwnership(instance);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse item ownership packet!");
+			LOG_DEBUG("Could not parse item ownership packet!");
 		}
 		break;
 	}
@@ -947,7 +950,7 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 				setPhase(phase);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse phase packet!");
+			LOG_DEBUG("Could not parse phase packet!");
 		}
 		break;
 	}
@@ -957,7 +960,7 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 			callDigMotionCallback(instance_.vid, instance_.target_vid, instance_.count);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse dig motion packet!");
+			LOG_DEBUG("Could not parse dig motion packet!");
 		}
 		break;
 	}
@@ -969,7 +972,7 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 			mgr.changeInstanceIsDead(dead.vid, 1);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse dead packet!");
+			LOG_DEBUG("Could not parse dead packet!");
 		}
 		break;
 	}
@@ -984,7 +987,7 @@ bool CNetworkStream::RecvGamePhase(BYTE* header)
 			mgr.setShopSign(sign.dwVID, sign.szSign);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse shop-sign packet!");
+			LOG_DEBUG("Could not parse shop-sign packet!");
 		}
 		break;
 	}
@@ -1005,18 +1008,18 @@ bool CNetworkStream::RecvLoadingPhase( BYTE* header)
 			mgr.appendNewInstance(instance);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse character add packet!");
+			LOG_DEBUG("Could not parse character add packet!");
 		}
 		break;
 	}
 	case HEADER_GC_MAIN_CHARACTER: {
 		SRcv_MainCharacterPacket m;
 		if (peekNetworkStream(sizeof(SRcv_MainCharacterPacket), &m)) {
-			DEBUG_INFO_LEVEL_2("MAIN VID: %d", m.dwVID);
+			LOG_DEBUG("MAIN VID: %d", m.dwVID);
 			mainCharacterVID = m.dwVID;
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse main character packet!");
+			LOG_DEBUG("Could not parse main character packet!");
 		}
 		break;
 	}
@@ -1027,7 +1030,7 @@ bool CNetworkStream::RecvLoadingPhase( BYTE* header)
 			mgr.changeItemOwnership(instance);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse item ownership packet!");
+			LOG_DEBUG("Could not parse item ownership packet!");
 		}
 		break;
 	}
@@ -1039,7 +1042,7 @@ bool CNetworkStream::RecvLoadingPhase( BYTE* header)
 			mgr.addItemGround(instance);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse item ground add packet!");
+			LOG_DEBUG("Could not parse item ground add packet!");
 		}
 		break;
 	}
@@ -1050,7 +1053,7 @@ bool CNetworkStream::RecvLoadingPhase( BYTE* header)
 				setPhase(phase);
 		}
 		else {
-			DEBUG_INFO_LEVEL_2("Could not parse phase packet!");
+			LOG_DEBUG("Could not parse phase packet!");
 		}
 		break;
 	}

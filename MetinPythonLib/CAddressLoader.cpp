@@ -1,15 +1,7 @@
 #include "stdafx.h"
 #include "CAddressLoader.h"
-#include "../common/Config.h"
-#include "defines.h"
-#include <sstream>
-#include <string>
-#include <fstream>
-#include "Communication.h"
-
-#ifdef USE_BUILTIN_PATTERNS
 #include "../common/Offsets.h"
-#endif
+#include "defines.h"
 
 CAddressLoader::CAddressLoader()
 {
@@ -27,114 +19,37 @@ bool CAddressLoader::setAddress(HMODULE hDll)
 		patternFinder = new Patterns(hDll, &global);
 	}
 	catch (std::exception& e) {
-		MessageBox(NULL, e.what(), "Critical Error Setting Pattern", MB_OK);
+		LOG_ERROR("Pattern scanner failed to initialize: %s -- no addresses will resolve", e.what());
 		return false;
 	}
 
-	void* baseDllAddress = patternFinder->GetStartModuleAddress();
+	// A signature that no longer matches is stored as address 0 on purpose: the call* wrappers in
+	// Memory.h check both their function pointer and the singleton they pass as `this`, so a dead
+	// signature degrades that one feature to a no-op instead of jumping to 0 or faulting deep inside
+	// the client. The counts below are the only warning a client patch gives us.
+	int resolved = 0;
+	for (auto& pattern : memPatterns) {
+		DWORD addr = (DWORD)patternFinder->GetPatternAddress(&pattern.second);
+		if (addr)
+			++resolved;
+		memoryAddress.insert({ pattern.first, addr });
+	}
+	int total = (int)memPatterns.size();
+	if (resolved == total)
+		LOG_INFO("%d/%d builtin patterns resolved", resolved, total);
+	else
+		LOG_ERROR("%d/%d builtin patterns resolved -- %d dead, re-derive", resolved, total, total - resolved);
 
-#ifdef GET_ADDRESS_FROM_SERVER
-	bool val = setAddressByServer(baseDllAddress);
 	delete patternFinder;
-	return val;
-#endif
-
-#ifdef GET_ADDRESS_FROM_FILE
-	std::string temp = getDllPath();
-	temp += ADRESS_FILE_NAME;
-	bool val = setAddressByFile(temp.data(),baseDllAddress);
-	delete patternFinder;
-	return val;
-#endif
-
-#ifdef USE_BUILTIN_PATTERNS
-	bool val = setAddressByPatterns(patternFinder);
-	delete patternFinder;
-	return val;
-#endif
-
-
-	return false;
+	return true;
 }
 
 void* CAddressLoader::GetAddress(int id)
 {
-	if (memoryAddress.find(id) == memoryAddress.end()) {
-		//DEBUG_INFO_LEVEL_1("Error getting address by id %d", id);
+	auto it = memoryAddress.find(id);
+	if (it == memoryAddress.end()) {
+		LOG_DEBUG("No address resolved for id %d", id);
 		return 0;
 	}
-	else {
-		void* result = (void*)memoryAddress.at(id);
-		//DEBUG_INFO_LEVEL_1("Address ID:%d with address -> %#x", id, result);
-		return result;
-	}
-}
-
-bool CAddressLoader::setAddressByPatterns(Patterns* p)
-{
-#ifdef USE_BUILTIN_PATTERNS
-	for (auto& pattern : memPatterns){
-		int id = pattern.first;
-		DWORD addr = (DWORD)p->GetPatternAddress(&pattern.second);
-		memoryAddress.insert({ id,addr });
-	}
-	DEBUG_INFO_LEVEL_1("Address set using patterns");
-#endif
-	return true;
-}
-
-bool CAddressLoader::setAddressByFile(const char* path, void* baseDllAddress)
-{
-	std::ifstream f(path,std::ios::ate);
-	if (!f.is_open()) {
-		DEBUG_INFO_LEVEL_1("Cannot open address file path %s", path);
-		return false;
-	}
-	std::string file_buffer;
-	
-	f.seekg(0, std::ios::end);
-	file_buffer.reserve(f.tellg());
-	f.seekg(0, std::ios::beg);
-
-	file_buffer.assign((std::istreambuf_iterator<char>(f)),std::istreambuf_iterator<char>());
-	parseFileBuffer(file_buffer.data(), file_buffer.size(), baseDllAddress);
-
-	DEBUG_INFO_LEVEL_1("%d addresses set using file at %s ",memoryAddress.size() ,path);
-	return true;
-}
-
-bool CAddressLoader::setAddressByServer(void* baseDllAddress)
-{
-	CCommunication& coms = CCommunication::Instance();
-	
-	if (coms.MainServerGetOffsets(&memoryAddress)) {
-		for (auto& key : memoryAddress) {
-			key.second += (DWORD)baseDllAddress;
-		}
-		DEBUG_INFO_LEVEL_1("Address set by the server");
-		return true;
-	}
-	return false;
-}
-
-void CAddressLoader::parseFileBuffer(const char* buffer, int size, void* baseDllAddress)
-{
-	std::stringstream ss;
-	ss << buffer;
-	std::string line;
-	while (std::getline(ss, line)) {
-
-		std::stringstream ss_line(line);
-		std::string id;
-		std::string address;
-		if (std::getline(ss_line, id,'\t') ){
-			if (std::getline(ss_line, address, '\t')) {
-				int id_num = std::stoi(id);
-				DWORD address_num = std::stoul(address,nullptr,16);
-				memoryAddress.insert({ id_num,address_num + (DWORD)baseDllAddress });
-				continue;
-			}
-		}
-		DEBUG_INFO_LEVEL_1("Failed to parse the following line '%s' from address buffer",line);
-	}
+	return (void*)it->second;
 }

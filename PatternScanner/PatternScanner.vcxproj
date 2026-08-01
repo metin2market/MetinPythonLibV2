@@ -98,12 +98,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\common\Log.cpp" />
     <ClCompile Include="..\common\Patterns.cpp" />
     <ClCompile Include="..\common\utils.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\common\Config.h" />
+    <ClInclude Include="..\common\Log.h" />
     <ClInclude Include="..\common\Offsets.h" />
     <ClInclude Include="..\common\Patterns.h" />
     <ClInclude Include="..\common\utils.h" />

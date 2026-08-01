@@ -212,10 +212,10 @@ PyObject* FindPath(PyObject* poSelf, PyObject* poArgs)
 		if (bck.getClosestUnblocked(x_start, y_start, &a)) {
 			x_start_unblocked = a.x;
 			y_start_unblocked = a.y;
-			DEBUG_INFO_LEVEL_3("[PATH-FIDING] Start Position blocked, new position X:%d  Y:%d", x_start_unblocked, y_start_unblocked);
+			LOG_DEBUG("[PATH-FIDING] Start Position blocked, new position X:%d  Y:%d", x_start_unblocked, y_start_unblocked);
 		}
 		else {
-			DEBUG_INFO_LEVEL_3("[PATH-FIDING] Cannot get closest unblocked position");
+			LOG_DEBUG("[PATH-FIDING] Cannot get closest unblocked position");
 			return PyList_New(0);
 		}
 	}
@@ -225,10 +225,10 @@ PyObject* FindPath(PyObject* poSelf, PyObject* poArgs)
 		if (bck.getClosestUnblocked(x_end, y_end, &a)) {
 			x_end = a.x;
 			y_end = a.y;
-			DEBUG_INFO_LEVEL_3("[PATH-FIDING] End Position blocked, new position X:%d  Y:%d", x_end, y_end);
+			LOG_DEBUG("[PATH-FIDING] End Position blocked, new position X:%d  Y:%d", x_end, y_end);
 		}
 		else {
-			DEBUG_INFO_LEVEL_3("[PATH-FIDING] Cannot get closest unblocked position");
+			LOG_DEBUG("[PATH-FIDING] Cannot get closest unblocked position");
 			return PyList_New(0);
 		}
 	}
@@ -798,14 +798,14 @@ PyObject* pySyncPlayerPosition(PyObject* poSelf, PyObject* poArgs)
 			Py_DECREF(InstanceLst);
 			Py_DECREF(iterator);
 			Py_DECREF(item);
-			DEBUG_INFO_LEVEL_2("pySyncPlayerPosition:Argument provided must be a list of lists");
+			LOG_DEBUG("pySyncPlayerPosition:Argument provided must be a list of lists");
 			return Py_BuildNone();
 		}
 		if (PyList_Size(item) < 3) {
 			Py_DECREF(InstanceLst);
 			Py_DECREF(iterator);
 			Py_DECREF(item);
-			DEBUG_INFO_LEVEL_2("pySyncPlayerPosition: To few values on each row, the values of each row must be vid,x,y");
+			LOG_DEBUG("pySyncPlayerPosition: To few values on each row, the values of each row must be vid,x,y");
 			return Py_BuildNone();
 		}
 		PyObject* vid_py = PyList_GetItem(item, 0);
@@ -814,7 +814,7 @@ PyObject* pySyncPlayerPosition(PyObject* poSelf, PyObject* poArgs)
 		pos.vid = PyLong_AsLong(vid_py);
 		pos.x = PyFloat_AsDouble(x_py);
 		pos.y = PyFloat_AsDouble(y_py);
-		DEBUG_INFO_LEVEL_3("pySyncPlayerPosition: vid=%d, x=%f, y=%f", pos.vid,pos.x,pos.y);
+		LOG_DEBUG("pySyncPlayerPosition: vid=%d, x=%f, y=%f", pos.vid,pos.x,pos.y);
 
 		resultList.push_back(pos);
 		Py_DECREF(item);
@@ -822,7 +822,7 @@ PyObject* pySyncPlayerPosition(PyObject* poSelf, PyObject* poArgs)
 	Py_DECREF(iterator);
 	Py_DECREF(InstanceLst);
 
-	DEBUG_INFO_LEVEL_3("Calling SyncPacket");
+	LOG_DEBUG("Calling SyncPacket");
 	int result = net.SendSyncPacket(resultList);
 	return Py_BuildValue("(i)", result);
 }
@@ -946,14 +946,6 @@ PyObject* pySetRecvDelGrndItem(PyObject* poSelf, PyObject* poArgs)
 
 
 
-//This methods must be the last ones on the s_methods variable
-static std::set<std::string> premium_methods = 
-{
-	std::string("GetRequest"),
-	std::string("SkipRenderer"),
-	std::string("UnskipRenderer")
-};
-
 // # options in the current NPC dialog (2-option "Open Shop / Close" -> 2). 0 = no menu, -1 = unresolved.
 PyObject* pyGetDialogAnswerCount(PyObject* poSelf, PyObject* poArgs)
 {
@@ -1046,7 +1038,6 @@ static PyMethodDef s_methods[] =
 	{ "SyncPlayerPosition", pySyncPlayerPosition ,	METH_VARARGS},
 	{ "SetRecvChatCallback", pySetRecvChatCallback ,	METH_VARARGS},
 
-	//Premium
 	{ "GetRequest",			pyGetRequest,			METH_VARARGS},
 	{ "SkipRenderer",		pySkipRenderer ,		METH_VARARGS},
 	{ "UnskipRenderer",		pyUnSkipRenderer ,		METH_VARARGS},
@@ -1057,23 +1048,8 @@ static PyMethodDef s_methods[] =
 
 void initModule() {
 	
-	//VMProtectBeginUltra("PythonModule");
-
-#ifdef GET_ADDRESS_FROM_SERVER
-	CCommunication& c = CCommunication::Instance();
-	bool is_premium = c.IsPremiumUser();
-	if (!is_premium) {
-		for (int i = 0; s_methods[i].ml_name != 0; i++) {
-			if (premium_methods.find(std::string(s_methods[i].ml_name)) != premium_methods.end()) { //is premium function, remove
-				DEBUG_INFO_LEVEL_1("Removing premium function %s", s_methods[i].ml_name);
-				s_methods[i] = { NULL, NULL };
-			}
-		}
-	}
-	DEBUG_INFO_LEVEL_1("Premium setup ended");
-#endif
 	packet_mod = Py_InitModule("eXLib", s_methods);
-	DEBUG_INFO_LEVEL_1("eXLib module created");
+	LOG_INFO("eXLib module created");
 	//VMProtectEnd();
 
 	// PyModule_AddObject STEALS a reference; getVIDList() returns InstanceManager's own dict without
@@ -1111,57 +1087,68 @@ void initModule() {
 	PyModule_AddIntConstant(packet_mod, "SUCCESS_FISHING", SUCESS_ON_FISHING);
 	PyModule_AddIntConstant(packet_mod, "UNSUCCESS_FISHING", UNSUCESS_ON_FISHING);
 	if (!addPathToInterpreter(getDllPath())) {
-		DEBUG_INFO_LEVEL_1("Error adding current path to intepreter!");
-		MessageBox(NULL, "Error adding current path to intepreter!", "Error", MB_OK);
+		LOG_ERROR("Error adding current path to intepreter!");
 		CApp & i = CApp::Instance();
 		i.exit();
 		return;
 	}
 
-	executePythonFile("init.py");
+	if (!executePythonFile("init.py"))
+		LOG_ERROR("init.py failed -- sys.path aliases are missing, script.py will not import");
 }
 
 bool addPathToInterpreter(const char* path) {
 	PyObject* sys = PyImport_ImportModule("sys");
 	if (!sys) {
+		PyErr_Clear();
 		return false;
 	}
 	PyObject* py_path = PyObject_GetAttrString(sys, "path");
 	if (!py_path) {
+		PyErr_Clear();
 		Py_DECREF(sys);
 		return false;
 	}
-	PyList_Append(py_path, PyString_FromString(path));
+	PyObject* entry = PyString_FromString(path);
+	bool ok = false;
+	if (entry) {
+		ok = PyList_Append(py_path, entry) == 0;   // Append INCREFs -> release our creation ref
+		Py_DECREF(entry);
+	}
 	Py_DECREF(sys);
 	Py_DECREF(py_path);
-	return true;
+	// Returning a failure with the error still set makes it resurface much later as an unrelated
+	// ImportError from whichever C-API call happens to check next -- every exit above clears too.
+	if (!ok)
+		PyErr_Clear();
+	return ok;
 }
 
 bool executePythonFile(const char* file) {
-	int result = 0;
-	char path[256] = { 0 };
-	strcpy(path, getDllPath());
-	//char del = '\';
-	//strncat(path, &del, 1);
-	strcat(path, file);
-	DEBUG_INFO_LEVEL_1("Executing Python file: %s", path);
-	PyObject* PyFileObject = PyFile_FromString(path, (char*)"r");
-	if (PyFileObject == NULL) {
-		DEBUG_INFO_LEVEL_1("%s  is not a File!", path);
-		goto error_code;
-	}
-	result = PyRun_SimpleFileEx(PyFile_AsFile(PyFileObject), "MyFile", 1);
-	if (result == -1) {
-		DEBUG_INFO_LEVEL_1("Error executing python script!");
-		goto error_code;
-	}
-	else {
-		DEBUG_INFO_LEVEL_1("Python script execution complete!");
-		Py_DECREF(PyFileObject);
-		return true;
+	char path[512];
+	if (!buildPath(path, sizeof(path), file)) {
+		LOG_ERROR("Path to %s does not fit in %d chars -- not executing", file, (int)sizeof(path));
+		return false;
 	}
 
-error_code:
+	LOG_INFO("Executing python file: %s", path);
+	PyObject* PyFileObject = PyFile_FromString(path, (char*)"r");
+	if (PyFileObject == NULL) {
+		PyErr_Clear();   // PyFile_FromString set an IOError; drop it before the client's next python call
+		LOG_ERROR("%s is not a file", path);
+		return false;
+	}
+
+	// closeit=0: the file object owns the FILE* and closes it in the dealloc below. Let PyRun close
+	// it too and dealloc hits an already-closed stream -- and since the CRT recycles the slot, a
+	// python thread that opened a file in between gets ITS file closed instead.
+	int result = PyRun_SimpleFileEx(PyFile_AsFile(PyFileObject), file, 0);
 	Py_DECREF(PyFileObject);
-	return 0;
+
+	if (result == -1) {
+		LOG_ERROR("Error executing python script %s (traceback in syserr)", file);
+		return false;
+	}
+	LOG_INFO("Python script %s executed", file);
+	return true;
 }

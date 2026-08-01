@@ -1,4 +1,5 @@
 #include "Hook.h"
+#include "../common/Log.h"
 
 bool Hook::changeProtectedMemory(void * target, void * src, int size)
 {
@@ -30,7 +31,8 @@ bool Hook::patchMemory(void * target, void * src, int src_size, int patchSize)
 {
 	BYTE* buf = (BYTE*)malloc(patchSize);
 	if (!buf) {
-		MessageBox(NULL, "Critical error alocating memory for Return Hook", "CRITICAL ERROR", MB_OK);
+		LOG_ERROR("Hook::patchMemory: out of memory for %d bytes at %p -- hook not installed",
+			patchSize, target);
 		return 0;
 	}
 	memcpy(buf, src, patchSize);

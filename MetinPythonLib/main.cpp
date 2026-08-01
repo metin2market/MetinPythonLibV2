@@ -15,28 +15,6 @@ struct DLLArgs {
 	char path[256];
 };
 
-/*
-void SetupDebugFile()
-{
-	std::string log_path(getDllPath());
-	log_path += "ex_log.txt";
-
-	HANDLE new_stdout = CreateFileA(log_path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	SetStdHandle(STD_OUTPUT_HANDLE, new_stdout);
-	int fd = _open_osfhandle((intptr_t)new_stdout, O_WRONLY | O_TEXT);
-	_dup2(fd, 1);
-}
-void SetupConsole()
-{
-	AllocConsole();
-	freopen("CONOUT$", "wb", stdout);
-	freopen("CONOUT$", "wb", stderr);
-	freopen("CONIN$", "rb", stdin);
-	SetConsoleTitle("Debug Console");
-
-}*/
-
-
 // ============================ CRASH LOGGER (vectored exception handler) ============================
 // The client has anti-debug that crashes when a breakpoint is set, and the world-reload crash is a
 // hard C-level access violation that leaves no python traceback in syserr. A VECTORED exception
@@ -44,7 +22,8 @@ void SetupConsole()
 // it in-process, first-chance, at the faulting instruction, before the client's own crash handler.
 // We dump the fault context (instruction, registers, candidate PyObjects, stack return addresses) to
 // <clientroot>\exlib_crash.txt, then CONTINUE_SEARCH so the crash proceeds exactly as before.
-// Overwrites each access violation -> the file holds the LAST (fatal) one when the process dies.
+// Each report overwrites the file, and only the first 5 are written at all -- a fault in a per-frame
+// path would otherwise rewrite it forever. Below that cap the file holds the LAST (fatal) fault.
 extern HMODULE hDll;   // eXLib.mix base (set in DllMain)
 
 // SEH-guarded read -- MUST stay in its own function (no C++ object unwinding alongside __try).
@@ -82,7 +61,7 @@ static void exDumpObj(FILE* f, const char* name, DWORD ptr)
 static void exWriteCrashReport(EXCEPTION_POINTERS* ep)
 {
 	char path[300];
-	_snprintf(path, sizeof(path), "%sexlib_crash.txt", getDllPath());
+	if (!buildPath(path, sizeof(path), "exlib_crash.txt")) return;
 	FILE* f = fopen(path, "w");
 	if (!f) return;
 	setvbuf(f, NULL, _IONBF, 0);   // UNBUFFERED: each fprintf hits disk now, so a crash mid-report
@@ -153,43 +132,27 @@ static void exWriteCrashReport(EXCEPTION_POINTERS* ep)
 		else if (ex && v >= ex && v < ex + 0x100000)  fprintf(f, "  +%03X: %08X  eXLib+%06X\n", i * 4, v, v - ex);
 	}
 	fclose(f);
+	LOG_ERROR("crash report written to %s", path);
 }
 
+volatile LONG g_exExpectedFault = 0;   // >0 while an eXLib probe is inside its own __try (see App.h)
 static volatile LONG g_exInHandler = 0;
-static volatile LONG g_exRecovered = 0;
+static LONG g_exReported = 0;
 static LONG WINAPI exVehHandler(EXCEPTION_POINTERS* ep)
 {
+	// Log only -- never swallow. Rewriting EIP past a faulting PyObject_GetAttrString masks the UAF
+	// instead of surfacing it, and the root cause (the borrowed game window, see pinGameWindow in
+	// App.cpp) is fixed, so a fault reaching here is news.
 	if (ep && ep->ExceptionRecord && ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
-		CONTEXT* c = ep->ContextRecord;
-		DWORD py = (DWORD)GetModuleHandleA("python27.dll");
-
-		// ---- WORLD-RELOAD UAF RECOVERY ----------------------------------------------------------
-		// On teleport uBot's object churn causes the client's game/phase-window python object to be
-		// freed while the client's C++ still holds the pointer; the next frame the client calls
-		// PyObject_GetAttrString(freed_window, "BINARY_...") and faults reading
-		// o->ob_type->tp_getattr at python27+0xAB458 (badAddr = ASCII garbage). That function is
-		// allowed to return NULL, and the client's getattr wrapper handles NULL (PyErr_Clear, skips
-		// the call). So instead of dying, RETURN NULL: set EAX=0 and jump to the function's clean
-		// 'pop edi; ret' epilogue at +0xAB46A. The frame is skipped; the next world frame installs a
-		// fresh window. This instruction only faults when ob_type is already a bad pointer (a UAF),
-		// so recovering here is strictly safer than crashing. (Mitigation -- the underlying uBot
-		// over-decref is still being hunted; keep the crash log for the first few occurrences.)
-		if (py && c->Eip == py + 0x0AB458) {
-			extern bool ExToggle_RecoverGetattr();   // App.cpp -- recover_getattr toggle
-			if (InterlockedIncrement(&g_exRecovered) <= 5)
-				exWriteCrashReport(ep);          // capture for diagnostics (whether we recover or not)
-			if (ExToggle_RecoverGetattr()) {
-				c->Eax = 0;                      // PyObject_GetAttrString -> NULL (attribute miss)
-				c->Eip = py + 0x0AB46A;          // -> 'pop edi; ret' epilogue (clean __cdecl return)
-				return EXCEPTION_CONTINUE_EXECUTION; // resume the client; no crash
-			}
-			return EXCEPTION_CONTINUE_SEARCH;    // recovery DISABLED -> let it crash (verifies the pin alone)
-		}
-		// -----------------------------------------------------------------------------------------
-
-		// any OTHER access violation: log once (unbuffered) and let it crash as before.
+		// eXLib's own SEH-guarded probes of stale client memory fault by design and handle it
+		// themselves; reporting those would rewrite the file and log an ERROR every frame.
+		if (g_exExpectedFault)
+			return EXCEPTION_CONTINUE_SEARCH;
 		if (InterlockedCompareExchange(&g_exInHandler, 1, 0) == 0) {
-			exWriteCrashReport(ep);
+			// g_exInHandler stops REENTRY, not REPETITION: a fault in any per-frame path repeats
+			// forever, and each report rewrites the whole file to an unbuffered handle.
+			if (InterlockedIncrement(&g_exReported) <= 5)
+				exWriteCrashReport(ep);
 			InterlockedExchange(&g_exInHandler, 0);
 		}
 	}
@@ -200,9 +163,15 @@ static LONG WINAPI exVehHandler(EXCEPTION_POINTERS* ep)
 
 DWORD WINAPI ThreadProc(LPVOID lpParameter)
 {
+	// First log call in the process, so this is what creates _logs\ and opens the file. That is
+	// CreateDirectory + fopen traversing filter drivers, which is why it cannot sit in DllMain under
+	// the loader lock.
+	char exeName[MAX_PATH] = { 0 };
+	GetModuleFileNameA(NULL, exeName, MAX_PATH);
+	LOG_INFO("Attached: pid=%lu exe=%s from %s", GetCurrentProcessId(), exeName, getDllPath());
+
 	static CApp app = CApp();
 	app.init();
-	//MessageBox(NULL, "Success Loading", "SUCCESS", MB_OK);
 	return true;
 }
 
@@ -233,8 +202,7 @@ BOOLEAN WINAPI DllMain(IN HINSTANCE hDllHandle,
 		break;
 
 	case DLL_PROCESS_DETACH:
-		CApp & app = CApp::Instance();
-		DEBUG_INFO_LEVEL_1("DETACHED CALLED");
+		LOG_INFO("Detaching");
 		//app.exit();
 		break;
 	}

@@ -1,3 +1,4 @@
+#include "../common/Log.h"
 #include "../common/Offsets.h"
 #include "../common/Patterns.h"
 #include "DetoursHook.h"
@@ -91,7 +92,7 @@ int main() {
 		patternFinder = new Patterns(hDll);
 	}
 	catch (std::exception& e) {
-		MessageBox(NULL, e.what(), "Critical Error", MB_OK);
+		LOG_ERROR("Pattern scanner failed to initialize: %s -- cannot hook the packet path", e.what());
 		return false;
 	}
 	std::string file_name = "packets";

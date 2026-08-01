@@ -18,7 +18,9 @@ public:
 public:
 
 	void changeInstancePosition(SRcv_CharacterMovePacket& packet_move);
-	void appendNewInstance(SRcv_PlayerCreatePacket& player);
+	// placeholder=true marks a record synthesised from a move packet; a later real CHARACTER_ADD
+	// overwrites it. A real add for an already-real vid is still ignored.
+	void appendNewInstance(SRcv_PlayerCreatePacket& player, bool placeholder = false);
 	void deleteInstance(DWORD vid);
 	void changeInstanceIsDead(DWORD vid, BYTE isDead);
 	void addItemGround(SRcv_GroundItemAddPacket& item);
@@ -47,8 +49,8 @@ public:
 
 	//Pickup filter
 	inline void clearFilter() { pickupFilter.clear(); };
-	inline void addItemFilter(DWORD index) {DEBUG_INFO_LEVEL_3("Pickup Filter Add=%d", index);pickupFilter.insert(index);};
-	inline void deleteItemFilter(DWORD index) {DEBUG_INFO_LEVEL_3("Pickup Filter Remove=%d", index);pickupFilter.erase(index);};
+	inline void addItemFilter(DWORD index) {LOG_DEBUG("Pickup Filter Add=%d", index);pickupFilter.insert(index);};
+	inline void deleteItemFilter(DWORD index) {LOG_DEBUG("Pickup Filter Remove=%d", index);pickupFilter.erase(index);};
 	inline void setModeFilter(bool val) { pickOnFilter = val; };
 	bool getCloseItemGround(int x, int y, SGroundItem* buffer);
 	DWORD getItemGrndID(DWORD vid);

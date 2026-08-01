@@ -62,7 +62,6 @@ private:
 
 
 private:
-	bool isMapSaved();
 	bool fileExists(const char* file);
 	bool constructMapFromClient();
 	bool addMapPiece(MapPiece* piece);
